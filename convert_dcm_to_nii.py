@@ -1,6 +1,6 @@
 import os
 from nipype.interfaces.dcm2nii import Dcm2niix
-sbatch_folder_path = "/mnt/newStor/paros/paros_WORK/HABS_connectomics/sbatch"
+sbatch_folder_path = "/mnt/newStor/paros/paros_WORK/HABS_niftis/sbatch"
 GD = "/home/apps/gunnies/"
 
 def convert_dcm_to_nifti(input_dir, output_dir):
