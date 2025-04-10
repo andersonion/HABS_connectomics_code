@@ -40,6 +40,6 @@ def convert_dcm_to_nifti(input_dir, output_dir):
 # Define your input and output directories
 #input_directory = '/mnt/newStor/paros/paros_CT/ADNI3_0_4_years/unzipped/ADNI/'
 input_directory ='/mnt/newStor/paros/paros_MRI/HABS/HABS_HD/'
-output_directory = '/mnt/newStor/paros/paros_MRI/HABS/HABS_HD/'
+output_directory = '/mnt/newStor/paros/paros_WORK/HABS_niftis/'
 
 convert_dcm_to_nifti(input_directory, output_directory)
