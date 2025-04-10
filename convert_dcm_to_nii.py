@@ -1,6 +1,6 @@
 import os
 from nipype.interfaces.dcm2nii import Dcm2niix
-sbatch_folder_path = "/mnt/newStor/paros/paros_CT/ADNI3_0_4_years/unzipped/ADNI/sbatch/"
+sbatch_folder_path = "/mnt/newStor/paros/paros_WORK/HABS_connectomics/sbatch"
 GD = "/home/apps/gunnies/"
 
 def convert_dcm_to_nifti(input_dir, output_dir):
@@ -39,7 +39,7 @@ def convert_dcm_to_nifti(input_dir, output_dir):
         i=i+1
 # Define your input and output directories
 #input_directory = '/mnt/newStor/paros/paros_CT/ADNI3_0_4_years/unzipped/ADNI/'
-input_directory ='/mnt/newStor/paros/paros_CT/ADNI3_0_4_years/addon_110724/ADNI_2/'
-output_directory = '/mnt/newStor/paros/paros_CT/ADNI3_0_4_years/addon_110724/ADNI_2/'
+input_directory ='/mnt/newStor/paros/paros_MRI/HABS/HABS_HD/'
+output_directory = '/mnt/newStor/paros/paros_MRI/HABS/HABS_HD/'
 
 convert_dcm_to_nifti(input_directory, output_directory)
