@@ -28,7 +28,7 @@ def convert_dcm_to_nifti(input_dir, output_dir):
                 converter.inputs.output_dir = output_subdir
                 converter.inputs.compress = 'y'  # Compress output files with gzip
                 #command1 = "hostname\n" + '/usr/bin/dcm2niix -b y -z y -x n -t n -m n -o ' + output_subdir+ ' -s n -v n ' +output_subdir
-                command1 = "hostname\n" + 'echo /usr/bin/dcm2niix -b y -z y -x n -t n -m n -o ' + output_subdir+ ' -s n -v n ' +input_subdir
+                command1 = "hostname\n" + '/usr/bin/dcm2niix -b y -z y -x n -t n -m n -o ' + output_subdir+ ' -s n -v n ' +input_subdir
                 command = GD + "submit_slurm_cluster_job.bash " + sbatch_folder_path + " "+ job_name + " 0 0 '"+ command1+"'"   
 
                 
