@@ -88,7 +88,7 @@ fi
 
 # A little clean up in case any one is OCD
 # Replace an instances of double slashes with a single slash:
-parent_dir=${parent_dir//\/\/\\/}
+parent_dir=${parent_dir//\/\//\/}
 
 echo "Study name: ${study}"
 echo "Inventorying and preprocessing data in: ${parent_dir}"
