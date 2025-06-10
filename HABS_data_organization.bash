@@ -148,6 +148,10 @@ else
 	echo "File: ${d_nii_list}"
 fi
 
-only_fmri=$(for subject in $fmris;do test=$(ls */${d_type}/ 2>/dev/null | grep ':' | cut -d '/' -f 1 | wc -l);if ((! $test));then echo $subject;fi;done | wc -l)
+# We add a protocol prefix (which might change with study) to prevent catching randomly
+# occurring strings elsewhere in file names
+
+opt_proto_prefix='/AX';
+only_fmri=$(for subject in $fmris;do test=$(grep ${subject}${opt_proto_prefix} ${d_nii_list} | wc -l);if ((! $test));then echo $subject;fi;done | wc -l)
 echo "Number of subjects with only ${c_name} data (no ${d_type}): ${only_fmri}"
 
