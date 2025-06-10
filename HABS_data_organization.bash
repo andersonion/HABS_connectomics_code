@@ -114,7 +114,7 @@ fi
 # Count number of apparent subjects with DTI; change c_type and c_name as is appropriate for your data
 c_type='*DTI*'
 c_name='diffusion'
-num_dwi=$(for runno in $(ls */${c_type}/ | grep ':' | cut -d '/' -f 1);do echo $runno;done | uniq| wc -l)
+num_dwis=$(for runno in $(ls */${c_type}/ | grep ':' | cut -d '/' -f 1);do echo $runno;done | uniq| wc -l)
 echo "Number of subjects with ${c_name} data: ${num_dwis}."
 
 # Count number of apparent subjects with fMRI; change c_type and c_name as is appropriate for your data
