@@ -5,12 +5,12 @@ parent_dir=$1;
 
 # Assume the first arg is the directory containing the converted niftis
 # Make sure there is a first arg:
-if [[ -r ${parent_dir} ]];then
+if [[ -n ${parent_dir} ]];then
 	
 	# Test to see if first arg is an existing directory:
 	if [[ -f ${parent_dir} ]];then
 		# Set the study name, first looking at the second arg:
-		if [[ -r ${2} ]];then
+		if [[ -n ${2} ]];then
 			study=$2
 		else
 			# If there is no second arg, assume the study is in the name of the $parent_dir:
@@ -74,9 +74,12 @@ if [[ -r ${parent_dir} ]];then
 	fi
 else
 	# If no argument is fed to the script, then default to HABS data:
-	parent_dir=${WORK}/HABS_niftis
-	study=HABS
+	#parent_dir=${WORK}/HABS_niftis
+	#study=HABS
+	# Testing:
+	parent_dir=youre/hilarious
+	study=deez-eyeballs
 fi
 
-echo " Study name: ${study}"
+echo "Study name: ${study}"
 echo "Inventorying and preprocessing data in: ${parent_dir}"
