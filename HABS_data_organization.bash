@@ -148,7 +148,7 @@ else
 	echo "File: ${d_nii_list}"
 fi
 
-dwi_subs=$(for nii in $(more ${dwi_niis});do echo ${nii%%/*};done | sort | uniq)
+dwi_subs=$(for nii in $(more ${d_nii_list});do echo ${nii%%/*};done | sort | uniq)
 
 # We add a protocol prefix (which might change with study) to prevent catching randomly
 # occurring strings elsewhere in file names
