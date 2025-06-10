@@ -122,3 +122,13 @@ c_type='*fMRI*'
 c_name='fMRI'
 num_fmris=$(for runno in $(ls */${c_type}/ | grep ':' | cut -d '/' -f 1);do echo $runno;done | uniq| wc -l)
 echo "Number of subjects with ${c_name} data: ${num_fmris}."
+
+# Count number of fMRI subjects with at least one diffusion:
+c_type='*fMRI*'
+c_name='fMRI'
+d_type='*DTI*'
+d_name='diffusion'
+fmris=$(for runno in $(ls */${c_type}/ | grep ':' | cut -d '/' -f 1);do echo $runno;done | uniq);
+only_fmri=$(for subject in $fmris;do test=$(ls */${d_type}/ 2>/dev/null | grep ':' | cut -d '/' -f 1 | wc -l);if ((! $test));then echo $subject;fi;done | wc -l)
+echo "Number of subjects with only ${c_name} data (no ${d_type}): ${only_fmri}"
+
