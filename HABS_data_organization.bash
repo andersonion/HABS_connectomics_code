@@ -89,3 +89,35 @@ parent_dir=${parent_dir//\/\//\/}
 
 echo "Study name: ${study}"
 echo "Inventorying and preprocessing data in: ${parent_dir}"
+
+# Use a nickname:
+pd=$parent_directory
+
+sbatch_dir=/${pd}/sbatch
+
+if [[ ! -d $sbatch_dir ]];then
+	mkdir $sbatch_dir;
+fi
+
+cd $pd;
+
+# Assume only subject and sbatch folders in pd:
+total_subs=$(ls -d */ 2>/dev/null | grep -v sbatch | wc -l)
+
+if [[ ${total_subs} -gt 0 ]];then	
+	echo "Total number of subjects: ${total_subjects}"
+else
+	echo "ERROR: No subject folders seem to be found in ${pd},";
+	echo "No further processing will take place..." && exit 1;
+fi
+
+# Count number of apparent subjects with DTI; change c_type and c_name as is appropriate for your data
+c_type='*DTI*'
+c_name='diffusion'
+num_dwi=$(for runno in $(ls */${c_type}/ | grep ':' | cut -d '/' -f 1);do echo $runno;done | uniq| wc -l)
+echo "Number of subjects with ${c_name} data: ${num_dwis}."
+
+# Count number of apparent subjects with fMRI; change c_type and c_name as is appropriate for your data
+c_type='*fMRI*'
+num_fmris=$(for runno in $(ls */${c_type}/ | grep ':' | cut -d '/' -f 1);do echo $runno;done | uniq| wc -l)
+echo "Number of subjects with ${c_name} data: ${num_fmris}."
