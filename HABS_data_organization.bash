@@ -79,11 +79,8 @@ if [[ -n ${parent_dir} ]];then
 	fi
 else
 	# If no argument is fed to the script, then default to HABS data:
-	#parent_dir=${WORK}/HABS_niftis
-	#study=HABS
-	# Testing:
-	parent_dir=youre/hilarious
-	study=deez-eyeballs
+	parent_dir=${WORK}/HABS_niftis
+	study=HABS
 fi
 
 # A little clean up in case any one is OCD
