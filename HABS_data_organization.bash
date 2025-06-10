@@ -39,6 +39,9 @@ if [[ -n ${parent_dir} ]];then
 			# Now eat anything up until and including the last slash:
 			study=${study##*/};
 			
+			# Also assume that the study name is before any underscores:
+			study=${study%%_*};		
+			
 			# Reassign the parent directory to the proven-to-exist test directory
 			parent_dir=${test_dir};
 		else
@@ -54,6 +57,9 @@ if [[ -n ${parent_dir} ]];then
 				
 				# Now eat anything up until and including the last slash:
 				study=${study##*/};
+				
+				# Also assume that the study name is before any underscores:
+				study=${study%%_*};		
 				
 				# Reassign the parent directory to the proven-to-exist test directory
 				parent_dir=${test_dir};
