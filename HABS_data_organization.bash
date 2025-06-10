@@ -8,7 +8,7 @@ parent_dir=$1;
 if [[ -n ${parent_dir} ]];then
 	echo 1
 	# Test to see if first arg is an existing directory:
-	if [[ -f ${parent_dir} ]];then
+	if [[ -d ${parent_dir} ]];then
 	echo 2
 		# Set the study name, first looking at the second arg:
 		if [[ -n ${2} ]];then
@@ -30,7 +30,7 @@ if [[ -n ${parent_dir} ]];then
 		# If not a directory as specified, assume it is a directory in the $WORK folder:
 		test_dir=${WORK}/${parent_dir};
 		
-		if [[ -f ${test_dir} ]];then
+		if [[ -d ${test_dir} ]];then
 			# If it does exist in the $WORK folder:
 			
 			# Assume the study name is before any underscores in the $parent_dir:
@@ -46,7 +46,7 @@ if [[ -n ${parent_dir} ]];then
 		else
 			# Maybe it exists in the current directory?
 			test_dir=${PWD}/${parent_dir};
-			if [[ -f ${test_dir} ]];then
+			if [[ -d ${test_dir} ]];then
 				# If it does exist in $PWD:
 				
 				# Assume the study name is before any underscores in the $parent_dir:
