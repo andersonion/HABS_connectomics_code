@@ -6,9 +6,10 @@ parent_dir=$1;
 # Assume the first arg is the directory containing the converted niftis
 # Make sure there is a first arg:
 if [[ -n ${parent_dir} ]];then
-	
+	echo 1
 	# Test to see if first arg is an existing directory:
 	if [[ -f ${parent_dir} ]];then
+	echo 2
 		# Set the study name, first looking at the second arg:
 		if [[ -n ${2} ]];then
 			study=$2
