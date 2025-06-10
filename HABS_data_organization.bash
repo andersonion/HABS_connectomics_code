@@ -129,6 +129,21 @@ c_name='fMRI'
 d_type='*DTI*'
 d_name='diffusion'
 fmris=$(for runno in $(ls */${c_type}/ | grep ':' | cut -d '/' -f 1);do echo $runno;done | uniq);
+bvals=$(ls */*/*/*/*bval)
+d_nii_list=$pd/dwi_niis.txt
+
+# Compiling list of 4D niis for diffusion data, and storing in a text file.
+# This file should be deleted if you rerun with any data added or removed.
+if [[ ! -f ${d_nii_list} ]];then
+	echo "Compiling list of 4D diffusion niftis..."
+	for bval in ${bvals};do
+		test=$(fslhd ${bval/bval/nii.gz} | grep dim4 | head -1 | tr -s [:space:] ':' | cut -d ':' -f2);
+		if [[ ${test} -gt 5 ]];then
+			echo ${bval/bval/nii.gz} >> $d_nii_list;
+		fi
+	done
+fi
+
 only_fmri=$(for subject in $fmris;do test=$(ls */${d_type}/ 2>/dev/null | grep ':' | cut -d '/' -f 1 | wc -l);if ((! $test));then echo $subject;fi;done | wc -l)
 echo "Number of subjects with only ${c_name} data (no ${d_type}): ${only_fmri}"
 
