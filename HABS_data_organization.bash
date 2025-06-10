@@ -66,7 +66,7 @@ if [[ -n ${parent_dir} ]];then
 				echo "ERROR: No valid input directory found, and no further processing will happen."
 				echo "If you want the current working directory to be the input directory,"
 				echo "then please explicitly use it as your first argument."
-				echo "(First argument you provided: $1)" && die 1			
+				echo "(First argument you provided: $1)" && exit 1			
 			fi
 
 		fi
