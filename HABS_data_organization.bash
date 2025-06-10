@@ -91,7 +91,7 @@ echo "Study name: ${study}"
 echo "Inventorying and preprocessing data in: ${parent_dir}"
 
 # Use a nickname:
-pd=$parent_directory
+pd=$parent_dir;
 
 sbatch_dir=/${pd}/sbatch
 
