@@ -105,7 +105,7 @@ cd $pd;
 total_subs=$(ls -d */ 2>/dev/null | grep -v sbatch | wc -l)
 
 if [[ ${total_subs} -gt 0 ]];then	
-	echo "Total number of subjects: ${total_subjects}"
+	echo "Total number of subjects: ${total_subs}"
 else
 	echo "ERROR: No subject folders seem to be found in ${pd},";
 	echo "No further processing will take place..." && exit 1;
@@ -119,5 +119,6 @@ echo "Number of subjects with ${c_name} data: ${num_dwis}."
 
 # Count number of apparent subjects with fMRI; change c_type and c_name as is appropriate for your data
 c_type='*fMRI*'
+c_name='fMRI'
 num_fmris=$(for runno in $(ls */${c_type}/ | grep ':' | cut -d '/' -f 1);do echo $runno;done | uniq| wc -l)
 echo "Number of subjects with ${c_name} data: ${num_fmris}."
