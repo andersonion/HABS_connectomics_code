@@ -142,6 +142,10 @@ if [[ ! -f ${d_nii_list} ]];then
 			echo ${bval/bval/nii.gz} >> $d_nii_list;
 		fi
 	done
+	echo "Done compiling list of 4D diffusion niftis."
+else
+	echo "NOTE: List of 4D diffusion niftis exists and won't be recompiled'."
+	echo "File: ${d_nii_list}"
 fi
 
 only_fmri=$(for subject in $fmris;do test=$(ls */${d_type}/ 2>/dev/null | grep ':' | cut -d '/' -f 1 | wc -l);if ((! $test));then echo $subject;fi;done | wc -l)
