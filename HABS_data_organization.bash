@@ -158,12 +158,16 @@ only_fmri=$(for subject in $fmris;do test=$(grep ${subject}${opt_proto_prefix} $
 echo "Number of subjects with only ${c_name} data (no ${d_type}): ${only_fmri}"
 
 # Test for anomolies with MORE than 2 dwis
-echo "Please inspect the following subjects, as they appear to have more than the expected maximum of 2 diffusion images:"
+anoms='';
 for sub in ${dwi_subs};do
 	test=$(grep "${sub}/${opt_proto_prefix}" $d_nii_list 2>/dev/null | wc -l) ;
 	if [[ ${test} -gt 2 ]];then
-		echo $sub;
-		echo ------;
+		anoms="${anoms}${sub} ";
 	fi
 done
+
+if [[ -n $anoms ]];then
+	echo "Please inspect the following subjects, as they appear to have more than the expected maximum of 2 diffusion images:"
+	echo "${anoms}"
+fi
 
