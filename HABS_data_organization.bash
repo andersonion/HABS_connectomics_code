@@ -148,10 +148,22 @@ else
 	echo "File: ${d_nii_list}"
 fi
 
+dwi_subs=$(for nii in $(more ${dwi_niis});do echo ${nii%%/*};done | sort | uniq)
+
 # We add a protocol prefix (which might change with study) to prevent catching randomly
 # occurring strings elsewhere in file names
 
 opt_proto_prefix='/AX';
 only_fmri=$(for subject in $fmris;do test=$(grep ${subject}${opt_proto_prefix} ${d_nii_list} | wc -l);if ((! $test));then echo $subject;fi;done | wc -l)
 echo "Number of subjects with only ${c_name} data (no ${d_type}): ${only_fmri}"
+
+# Test for anomolies with MORE than 2 dwis
+echo "Please inspect the following subjects, as they appear to have more than the expected maximum of 2 diffusion images:"
+for sub in ${dwi_subs};do
+	test=$(grep "${sub}/${opt_proto_prefix}" $d_nii_list 2>/dev/null | wc -l) ;
+	if [[ ${test} -gt 2 ]];then
+		echo $sub;
+		echo ------;
+	fi
+done
 
