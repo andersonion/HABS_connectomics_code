@@ -78,4 +78,5 @@ else
 	study=HABS
 fi
 
+echo " Study name: ${study}"
 echo "Inventorying and preprocessing data in: ${parent_dir}"
