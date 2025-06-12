@@ -338,7 +338,7 @@ echo "Number of subjects with longitudinal ${d_name} data: ${n_long_d}"
 # Identify subjects with both longitudinal DWIs and fMRIs
 long_all=$(for sub in ${long_d};do test=$(echo ${long_c} | grep "${sub}" 2>/dev/null | wc -l) ;if ((${test}));then echo $sub;fi;done)
 n_long_all=$(echo $long_all | wc -w)
-echo "Number of subjects with longitudinal ${c_name} AND ${d_name} data: ${n_long_all	}"
+echo "Number of subjects with longitudinal ${c_name} AND ${d_name} data: ${n_long_all}"
 
 #-----
 
