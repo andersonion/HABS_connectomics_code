@@ -342,7 +342,7 @@ echo "Number of subjects with longitudinal ${c_name} AND ${d_name} data: ${n_lon
 
 #-----
 
-y_file=/${pd}/${project}_years.txt
+y_file=/${pd}/${study}_years.txt
 for subject in ${all};do
 	years=$(ls ${subject}/* | cut -d '-' -f1 | cut -d '/' -f3 | sort | uniq | tr -s [:space:] ' ');
 	line=$(echo $subject $years | tr [:space:]  ':');
