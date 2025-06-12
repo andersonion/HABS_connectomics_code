@@ -137,7 +137,7 @@ c_nii_list=$pd/${c_name}_niis.txt
 
 # Bespoke to fMRI data, we test for a minumum of 7 volumes, but this can be adjusted
 # for other types of multi-dimensional data...including DTI
-more_vols_than = 60;
+more_vols_than=60;
 
 all_fmri_niis=$(ls */${c_type}/*/*/*.nii.gz);
 
@@ -165,7 +165,7 @@ d_nii_list=$pd/${d_name}_niis.txt
 
 # Bespoke to diffusion data, we test for a minumum of 7 volumes, but this can be adjusted
 # for other types of multi-dimensional data...including fMRI
-more_vols_than = 6;
+more_vols_than=6;
 
 # For usable diffusion data, we need bvals/bvecs, so we look for either of those:
 bvals=$(ls */*/*/*/*bval)
@@ -187,16 +187,6 @@ fi
 
 dwi_subs=$(for nii in $(more ${d_nii_list});do echo ${nii%%/*};done | sort | uniq)
 #-----
-# How many subjects only have raw fMRI data, and no usable DTI data?
-
-# Note: We add a protocol prefix (which might change with study) to prevent catching randomly
-# occurring strings elsewhere in file names
-
-opt_proto_prefix='/AX';
-only_fmri=$(for subject in $fmris;do test=$(grep ${subject}${opt_proto_prefix} ${d_nii_list} | wc -l);if ((! $test));then echo $subject;fi;done | wc -l)
-echo "Number of subjects with only ${c_name} data (no ${d_name}): ${only_fmri}"
-echo "Note that some subjects may have ${d_name} data, but are missing the raw 4D stack we want."
-
 # Test for anomolies with MORE than 2 dwis
 anoms='';
 for sub in ${dwi_subs};do
@@ -211,7 +201,37 @@ if [[ -n $anoms ]];then
 	echo "    ${anoms}"
 fi
 
-# How many subjects only have raw DTI data, and no usable fMRI data?
-only_dwi=$(for subject in $dwi_subs;do test=$(grep ${subject}${opt_proto_prefix} ${d_nii_list} | wc -l);if ((! $test));then echo $subject;fi;done | wc -l)
+#-----
+
+# How many subjects only have raw fMRI data, and no usable DTI data?
+
+# Note: We add a protocol prefix (which might change with study) to prevent catching randomly
+# occurring strings elsewhere in file names
+
+opt_proto_prefix='/AX';
+only_fmri=$(for subject in ${fmri_subs};do test=$(grep ${subject}${opt_proto_prefix} ${d_nii_list} | wc -l);if ((! $test));then echo $subject;fi;done | wc -l)
 echo "Number of subjects with only ${c_name} data (no ${d_name}): ${only_fmri}"
 echo "Note that some subjects may have ${d_name} data, but are missing the raw 4D stack we want."
+
+#-----
+
+# How many subjects only have raw DTI data, and no usable fMRI data?
+
+opt_proto_prefix='/f';
+only_dwi=$(for subject in {$dwi_subs};do test=$(grep ${subject}${opt_proto_prefix} ${c_nii_list} | wc -l);if ((! $test));then echo $subject;fi;done | wc -l)
+echo "Number of subjects with only ${d_name} data (no ${c_name}): ${only_dwi}"
+echo "Note that some subjects may have ${c_name} data, but are missing the raw 4D stack we want."
+
+#-----
+
+
+
+#-----
+
+
+
+#-----
+
+
+
+#-----
