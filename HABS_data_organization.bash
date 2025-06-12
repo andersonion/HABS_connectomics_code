@@ -154,10 +154,10 @@ echo "Number of subjects with ${c_name} data: ${num_c}."
 # Test for anomolies with MORE than 2 fmris
 anoms='';
 for sub in ${c_subs};do
-	test=$(grep "^${sub}/" $c_nii_list 2>/dev/null | wc -l) ;
+	test=$(grep "^${sub}/" "$c_nii_list" 2>/dev/null | wc -l) ;
 	if [[ ${test} -gt 2 ]];then
 		# Automatically clean up any duplicates with suffix 'a','b','c', etc...:
-		niis=$(grep "^${sub}/" $c_nii_list 2>/dev/null);
+		niis=$(grep "^${sub}/" "$c_nii_list" 2>/dev/null);
 		cksums=$(for nii in ${niis};do cksum ${nii} 2>/dev/null | tr -s [:space:] ' ' | cut -d ' ' -f1;done)
 		# Convert to arrays for indexing
 		niis=($niis);
@@ -176,19 +176,19 @@ for sub in ${c_subs};do
 						if [[ ${ck1} == ${ck2} ]];then
 							if [[ ${#pfx_1} -gt ${#$pfx_2} ]];then
 								# Remove all traces of nii_1, etc
-								echo rm ${pfx_1}.*;
-								echo sed -i "\|^${nii_1}\$|d" ${c_nii_list};
+								echo rm "${pfx_1}".*;
+								echo sed -i "\|^${nii_1}\$|d" "${c_nii_list}";
 							else
 								# Remove all traces of nii_2
-								echo rm ${pfx_2}.*;
-								echo sed -i "\|^${nii_2}\$|d" ${c_nii_list};
+								echo rm "${pfx_2}".*;
+								echo sed -i "\|^${nii_2}\$|d" "${c_nii_list}";
 								unset niis[$j]
 								unset cksums[$j]
 							fi
 						fi
 					fi
 				done
-			if
+			fi
 		done		
 		re_test=$(grep "^${sub}/" $c_nii_list 2>/dev/null | wc -l) ;
 		if [[ ${re_test} -gt 2 ]];then
@@ -238,7 +238,7 @@ echo "Number of subjects with ${d_name} data: ${num_d}."
 # Test for anomolies with MORE than 2 dwis
 anoms='';
 for sub in ${d_subs};do
-	test=$(grep "^${sub}/" $d_nii_list 2>/dev/null | wc -l) ;
+	test=$(grep "^${sub}/" "$d_nii_list" 2>/dev/null | wc -l) ;
 	if [[ ${test} -gt 2 ]];then
 		# Automatically clean up any duplicates with suffix 'a','b','c', etc...:
 		niis=$(grep "^${sub}/" $d_nii_list 2>/dev/null);
@@ -261,18 +261,18 @@ for sub in ${d_subs};do
 							if [[ ${#pfx_1} -gt ${#$pfx_2} ]];then
 								# Remove all traces of nii_1, etc
 								echo rm ${pfx_1}.*;
-								echo sed -i "\|^${nii_1}\$|d" ${d_nii_list};
+								echo sed -i "\|^${nii_1}\$|d" "${d_nii_list}";
 							else
 								# Remove all traces of nii_2
-								echo rm ${pfx_2}.*;
-								echo sed -i "\|^${nii_2}\$|d" ${d_nii_list};
+								echo rm "${pfx_2}".*;
+								echo sed -i "\|^${nii_2}\$|d" "${d_nii_list}";
 								unset niis[$j]
 								unset cksums[$j]
 							fi
 						fi
 					fi
 				done
-			if
+			fi
 		done		
 		re_test=$(grep "^${sub}/" $d_nii_list 2>/dev/null | wc -l) ;
 		if [[ ${re_test} -gt 2 ]];then
