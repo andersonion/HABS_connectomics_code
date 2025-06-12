@@ -301,12 +301,10 @@ fi
 #------
 
 
-# Compiling list of 4D niis for fMRI data, and storing in a text file.
+# Compiling list of T1 niis (MPRAGE), and storing in a text file.
 # This file should be deleted if you rerun with any data added or removed.
-c_nii_list=$pd/${c_name}_niis.txt
+t_nii_list=$pd/${t_name}_niis.txt
 
-# Bespoke to fMRI data, we test for a minumum of 7 volumes, but this can be adjusted
-# for other types of multi-dimensional data...including DTI
 more_vols_than=0;
 if ((!$more_vols_than));then
 	dim='3D '
