@@ -156,7 +156,44 @@ anoms='';
 for sub in ${c_subs};do
 	test=$(grep "^${sub}/" $c_nii_list 2>/dev/null | wc -l) ;
 	if [[ ${test} -gt 2 ]];then
-		anoms="${anoms}${sub} ";
+		# Automatically clean up any duplicates with suffix 'a','b','c', etc...:
+		niis=$(grep "^${sub}/" $c_nii_list 2>/dev/null);
+		cksums=$(for nii in ${niis};do cksum ${nii} 2>/dev/null | tr -s [:space:] ' ' | cut -d ' ' -f1;done)
+		# Convert to arrays for indexing
+		niis=($niis);
+		cksums=($cksums);
+		for ((i=0; i<${#niis[@]}-1; i++)); do
+			nii_1=${niis[$i]};
+			if [[ -n ${nii_1} ]];then
+				ck1=${cksums[$i]};
+				pfx_1=${nii_1%.nii.gz};
+				for ((j=i+1; j<${#niis[@]}; j++)); do
+					nii_2=${niis[$j]};
+					if [[ -n ${nii_2} ]];then
+						ck2=${cksums[$j]};
+						pfx_2=${nii_2%.nii.gz};
+						# Are these the same file?
+						if [[ ${ck1} == ${ck2} ]];then
+							if [[ ${#pfx_1} -gt ${#$pfx_2} ]];then
+								# Remove all traces of nii_1, etc
+								echo rm ${pfx_1}.*;
+								echo sed -i "\|^${nii_1}\$|d" ${c_nii_list};
+							else
+								# Remove all traces of nii_2
+								echo rm ${pfx_2}.*;
+								echo sed -i "\|^${nii_2}\$|d" ${c_nii_list};
+								unset niis[$j]
+								unset cksums[$j]
+							fi
+						fi
+					fi
+				done
+			if
+		done		
+		re_test=$(grep "^${sub}/" $c_nii_list 2>/dev/null | wc -l) ;
+		if [[ ${test} -gt 2 ]];then
+			anoms="${anoms}${sub} ";
+		fi
 	fi
 done
 
@@ -234,8 +271,8 @@ for sub in ${d_subs};do
 							fi
 						fi
 					fi
-				fi
-			done
+				done
+			if
 		done		
 		re_test=$(grep "^${sub}/" $d_nii_list 2>/dev/null | wc -l) ;
 		if [[ ${test} -gt 2 ]];then
