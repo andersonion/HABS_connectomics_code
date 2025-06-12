@@ -177,13 +177,13 @@ for sub in ${c_subs};do
 							if [[ ${#pfx_1} -gt ${#pfx_2} ]];then
 								# Remove all traces of nii_1, etc
 								echo "NOTE: removing apparent duplicate and any related files: ${nii_1}"
-								echo rm "${pfx_1}".*;
-								echo sed -i "\|^${nii_1}\$|d" "${c_nii_list}";
+								rm "${pfx_1}".*;
+								sed -i "\|^${nii_1}\$|d" "${c_nii_list}";
 							else
 								# Remove all traces of nii_2
 								echo "NOTE: removing apparent duplicate and any related files: ${nii_2}"
-								echo rm "${pfx_2}".*;
-								echo sed -i "\|^${nii_2}\$|d" "${c_nii_list}";
+								rm "${pfx_2}".*;
+								sed -i "\|^${nii_2}\$|d" "${c_nii_list}";
 								unset niis[$j]
 								unset cksums[$j]
 							fi
@@ -263,13 +263,13 @@ for sub in ${d_subs};do
 							if [[ ${#pfx_1} -gt ${#pfx_2} ]];then
 								# Remove all traces of nii_1, etc
 								echo "NOTE: removing apparent duplicate and any related files: ${nii_1}"
-								echo rm ${pfx_1}.*;
-								echo sed -i "\|^${nii_1}\$|d" "${d_nii_list}";
+								rm ${pfx_1}.*;
+								sed -i "\|^${nii_1}\$|d" "${d_nii_list}";
 							else
 								# Remove all traces of nii_2
 								echo "NOTE: removing apparent duplicate and any related files: ${nii_2}"
-								echo rm "${pfx_2}".*;
-								echo sed -i "\|^${nii_2}\$|d" "${d_nii_list}";
+								rm "${pfx_2}".*;
+								sed -i "\|^${nii_2}\$|d" "${d_nii_list}";
 								unset niis[$j]
 								unset cksums[$j]
 							fi
