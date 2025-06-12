@@ -112,10 +112,10 @@ else
 fi
 
 # Count number of apparent subjects with DTI; change c_type and c_name as is appropriate for your data
-c_type='*DTI*'
+d_type='*DTI*'
 c_name='diffusion'
 num_dwis=$(for runno in $(ls */${c_type}/ | grep ':' | cut -d '/' -f 1);do echo $runno;done | uniq| wc -l)
-echo "Number of subjects with ${c_name} data: ${num_dwis}."
+
 
 # Count number of apparent subjects with fMRI; change c_type and c_name as is appropriate for your data
 c_type='*fMRI*'
@@ -139,12 +139,12 @@ c_nii_list=$pd/${c_name}_niis.txt
 # for other types of multi-dimensional data...including DTI
 more_vols_than=60;
 
-all_fmri_niis=$(ls */${c_type}/*/*/*.nii.gz);
+all_c_niis=$(ls */${c_type}/*/*/*.nii.gz);
 
 
 if [[ ! -f ${c_nii_list} ]];then
 	echo "Compiling list of 4D ${c_name} niftis..."
-	for nii in ${all_fmri_niis};do
+	for nii in ${all_c_niis};do
 		test=$(fslhd ${nii} | grep dim4 | head -1 | tr -s [:space:] ':' | cut -d ':' -f2);
 		if [[ ${test} -gt ${more_vols_than} ]];then
 			echo ${nii} >> $c_nii_list;
@@ -156,8 +156,9 @@ else
 	echo "   File: ${c_nii_list}"
 fi
 
-fmri_subs=$(for nii in $(more ${c_nii_list});do echo ${nii%%/*};done | sort | uniq)
-
+c_subs=$(for nii in $(more ${c_nii_list});do echo ${nii%%/*};done | sort | uniq)
+num_c=$(echo $c_subs | wc -w)
+echo "Number of subjects with ${c_name} data: ${num_c}."
 
 # Compiling list of 4D niis for diffusion data, and storing in a text file.
 # This file should be deleted if you rerun with any data added or removed.
@@ -185,7 +186,10 @@ else
 	echo "   File: ${d_nii_list}"
 fi
 
-dwi_subs=$(for nii in $(more ${d_nii_list});do echo ${nii%%/*};done | sort | uniq)
+d_subs=$(for nii in $(more ${d_nii_list});do echo ${nii%%/*};done | sort | uniq)
+num_d=$(echo $d_subs | wc -w)
+echo "Number of subjects with ${d_name} data: ${num_d}."
+
 #-----
 # Test for anomolies with MORE than 2 dwis
 anoms='';
