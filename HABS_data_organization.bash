@@ -437,7 +437,7 @@ for subject in $all;do
 				fi
 			done
 		done
-		(($idx++));
 	done
+	(($idx++));
 done
 #-----
