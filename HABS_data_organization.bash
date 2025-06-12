@@ -193,7 +193,7 @@ echo "Number of subjects with ${d_name} data: ${num_d}."
 #-----
 # Test for anomolies with MORE than 2 dwis
 anoms='';
-for sub in ${dwi_subs};do
+for sub in ${d_subs};do
 	test=$(grep "${sub}/${opt_proto_prefix}" $d_nii_list 2>/dev/null | wc -l) ;
 	if [[ ${test} -gt 2 ]];then
 		anoms="${anoms}${sub} ";
@@ -209,7 +209,7 @@ fi
 
 # How many subjects have both usable data for both fMRI and DtTI?
 
-both_types=$(for subject in $fmri_subs;do echo $dwi_subs | grep ${subject} 2>/dev/null;done | wc -l)
+both_types=$(for subject in $c_subs;do echo $d_subs | grep ${subject} 2>/dev/null;done | wc -l)
 echo "Number of subjects with both ${c_name} and ${d_name} data: ${both_types}"
 #-----
 
@@ -217,19 +217,21 @@ echo "Number of subjects with both ${c_name} and ${d_name} data: ${both_types}"
 
 # Note: We add a protocol prefix (which might change with study) to prevent catching randomly
 # occurring strings elsewhere in file names
-
+# Not needed now, but keeping the code for later...
 opt_proto_prefix='/AX';
-only_fmri=$(for subject in ${fmri_subs};do test=$(grep ${subject}${opt_proto_prefix} ${d_nii_list} | wc -l);if ((! $test));then echo $subject;fi;done | wc -l)
-echo "Number of subjects with only ${c_name} data (no ${d_name}): ${only_fmri}"
+
+only_c=$(for subject in $c_subs;do echo $d_subs | grep ${subject} 2>/dev/null | wc -l);if ((! $test));then echo $subject;fi;done | wc -l)
+echo "Number of subjects with only ${c_name} data (no ${d_name}): ${only_c}"
 echo "Note that some subjects may have ${d_name} data, but are missing the raw 4D stack we want."
 
 #-----
 
 # How many subjects only have raw DTI data, and no usable fMRI data?
 
-opt_proto_prefix='/f';
-only_dwi=$(for subject in {$dwi_subs};do test=$(grep ${subject}${opt_proto_prefix} ${c_nii_list} | wc -l);if ((! $test));then echo $subject;fi;done | wc -l)
-echo "Number of subjects with only ${d_name} data (no ${c_name}): ${only_dwi}"
+#opt_proto_prefix='/f';
+
+only_d=$(for subject in $d_subs;do echo $c_subs | grep ${subject} 2>/dev/null | wc -l);if ((! $test));then echo $subject;fi;done | wc -l)
+echo "Number of subjects with only ${d_name} data (no ${c_name}): ${only_d}"
 echo "Note that some subjects may have ${c_name} data, but are missing the raw 4D stack we want."
 
 #-----
