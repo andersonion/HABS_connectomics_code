@@ -410,8 +410,9 @@ done
 # Start renaming...
 lists=($c_nii_list $d_nii_list $t_nii_list);
 suffices=($c_suffix $d_suffix $t_suffix)
-idx=0
+
 for subject in $all;do
+	idx=0
 	h_subject="H${runno#H}";
 	for nii_list in @{lists};do	
 		suffix=${suffices[$idx]};
