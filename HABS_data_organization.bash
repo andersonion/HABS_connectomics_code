@@ -148,6 +148,25 @@ c_subs=$(for nii in $(more ${c_nii_list});do echo ${nii%%/*};done | sort | uniq)
 num_c=$(echo $c_subs | wc -w)
 echo "Number of subjects with ${c_name} data: ${num_c}."
 
+
+#-----
+
+# Test for anomolies with MORE than 2 fmris
+anoms='';
+for sub in ${c_subs};do
+	test=$(grep "^${sub}/" $c_nii_list 2>/dev/null | wc -l) ;
+	if [[ ${test} -gt 2 ]];then
+		anoms="${anoms}${sub} ";
+	fi
+done
+
+if [[ -n $anoms ]];then
+	echo "Please inspect the following subjects, as they appear to have more than the expected maximum of 2 ${c_name} images:"
+	echo "    ${anoms}"
+fi
+
+#-----
+
 # Compiling list of 4D niis for diffusion data, and storing in a text file.
 # This file should be deleted if you rerun with any data added or removed.
 d_nii_list=$pd/${d_name}_niis.txt
@@ -182,14 +201,14 @@ echo "Number of subjects with ${d_name} data: ${num_d}."
 # Test for anomolies with MORE than 2 dwis
 anoms='';
 for sub in ${d_subs};do
-	test=$(grep "${sub}/${opt_proto_prefix}" $d_nii_list 2>/dev/null | wc -l) ;
+	test=$(grep "^${sub}/" $d_nii_list 2>/dev/null | wc -l) ;
 	if [[ ${test} -gt 2 ]];then
 		anoms="${anoms}${sub} ";
 	fi
 done
 
 if [[ -n $anoms ]];then
-	echo "Please inspect the following subjects, as they appear to have more than the expected maximum of 2 diffusion images:"
+	echo "Please inspect the following subjects, as they appear to have more than the expected maximum of 2 ${d_type} images:"
 	echo "    ${anoms}"
 fi
 
@@ -210,7 +229,7 @@ opt_proto_prefix='/AX';
 
 only_c=$(for subject in $c_subs;do test=$(echo $d_subs | grep ${subject} 2>/dev/null | wc -l);if ((! $test));then echo $subject;fi;done | wc -l)
 echo "Number of subjects with only ${c_name} data (no ${d_name}): ${only_c}"
-echo "Note that some subjects may have ${d_name} data, but are missing the raw 4D stack we want."
+echo "   Note that some subjects may have ${d_name} data, but are missing the raw 4D stack we want."
 
 #-----
 
@@ -220,7 +239,7 @@ echo "Note that some subjects may have ${d_name} data, but are missing the raw 4
 
 only_d=$(for subject in $d_subs;do test=$(echo $c_subs | grep ${subject} 2>/dev/null | wc -l);if ((! $test));then echo $subject;fi;done | wc -l)
 echo "Number of subjects with only ${d_name} data (no ${c_name}): ${only_d}"
-echo "Note that some subjects may have ${c_name} data, but are missing the raw 4D stack we want."
+echo "   Note that some subjects may have ${c_name} data, but are missing the raw 4D stack we want."
 
 #-----
 
