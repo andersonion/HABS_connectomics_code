@@ -174,7 +174,7 @@ for sub in ${c_subs};do
 						pfx_2=${nii_2%.nii.gz};
 						# Are these the same file?
 						if [[ ${ck1} == ${ck2} ]];then
-							if [[ ${#pfx_1} -gt ${#$pfx_2} ]];then
+							if [[ ${#pfx_1} -gt ${#pfx_2} ]];then
 								# Remove all traces of nii_1, etc
 								echo rm "${pfx_1}".*;
 								echo sed -i "\|^${nii_1}\$|d" "${c_nii_list}";
@@ -258,7 +258,7 @@ for sub in ${d_subs};do
 						pfx_2=${nii_2%.nii.gz};
 						# Are these the same file?
 						if [[ ${ck1} == ${ck2} ]];then
-							if [[ ${#pfx_1} -gt ${#$pfx_2} ]];then
+							if [[ ${#pfx_1} -gt ${#pfx_2} ]];then
 								# Remove all traces of nii_1, etc
 								echo rm ${pfx_1}.*;
 								echo sed -i "\|^${nii_1}\$|d" "${d_nii_list}";
