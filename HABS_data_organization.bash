@@ -104,7 +104,10 @@ fi
 cd $pd;
 
 inputs=$(realpath "${pd}/../${study}_inputs");
-
+echo "Renamed sym_links will be put in 'Inputs' folder: $inputs"
+if [[ ! -d ${inputs} ]];then
+	mdkir ${inputs};
+fi
 # Assume only subject and sbatch folders in pd:
 total_subs=$(ls -d */ 2>/dev/null | grep -v sbatch | wc -l)
 
