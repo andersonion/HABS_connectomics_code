@@ -137,7 +137,7 @@ c_nii_list=$pd/${c_name}_niis.txt
 
 # Bespoke to fMRI data, we test for a minumum of 7 volumes, but this can be adjusted
 # for other types of multi-dimensional data...including DTI
-more_vols_than = 6;
+more_vols_than = 60;
 
 all_fmri_niis=$(ls */${c_type}/*/*/*.nii.gz);
 
@@ -147,7 +147,6 @@ if [[ ! -f ${c_nii_list} ]];then
 	for nii in ${all_fmri_niis};do
 		test=$(fslhd ${nii} | grep dim4 | head -1 | tr -s [:space:] ':' | cut -d ':' -f2);
 		if [[ ${test} -gt ${more_vols_than} ]];then
-			echo ${test}
 			echo ${nii} >> $c_nii_list;
 		fi
 	done
