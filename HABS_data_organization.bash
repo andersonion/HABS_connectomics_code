@@ -114,8 +114,16 @@ fi
 # Count number of fMRI subjects with at least one diffusion:
 c_type='*fMRI*'
 c_name='fMRI'
+c_suffix='_fMRI_nii4D'
+
 d_type='*DTI*'
 d_name='diffusion'
+d_suffix='_DWI_nii4D'
+
+t_type='*MPRAGE*'
+t_name='T1'
+t_suffix='_T1'
+
 
 #------
 
@@ -290,7 +298,44 @@ if [[ -n $anoms ]];then
 	echo "    ${anoms}"
 fi
 
-#-----
+#------
+
+
+# Compiling list of 4D niis for fMRI data, and storing in a text file.
+# This file should be deleted if you rerun with any data added or removed.
+c_nii_list=$pd/${c_name}_niis.txt
+
+# Bespoke to fMRI data, we test for a minumum of 7 volumes, but this can be adjusted
+# for other types of multi-dimensional data...including DTI
+more_vols_than=0;
+if ((!$more_vols_than));then
+	dim='3D '
+else
+	dim='4D '
+fi
+
+all_t_niis=$(ls */${t_type}/*/*/*.nii.gz);
+
+
+if [[ ! -f ${t_nii_list} ]];then
+	echo "Compiling list of ${dim}${t_name} niftis..."
+	for nii in ${all_t_niis};do
+		test=$(fslhd ${nii} | grep dim4 | head -1 | tr -s [:space:] ':' | cut -d ':' -f2);
+		if [[ ${test} -gt ${more_vols_than} ]];then
+			echo ${nii} >> $t_nii_list;
+		fi
+	done
+	echo "Done compiling list of ${dim}${t_name} niftis."
+else
+	echo "NOTE: List of ${dim}${c_name} niftis exists and won't be recompiled'."
+	echo "   File: ${t_nii_list}"
+fi
+
+t_subs=$(for nii in $(more ${t_nii_list});do echo ${nii%%/*};done | sort | uniq)
+num_t=$(echo $t_subs | wc -w)
+echo "Number of subjects with ${t_name} data: ${num_t}."
+
+#------
 
 # How many subjects have both usable data for both fMRI and DtTI?
 
@@ -342,6 +387,8 @@ echo "Number of subjects with longitudinal ${c_name} AND ${d_name} data: ${n_lon
 
 #-----
 
+# Tabulate all the years associated with each subject, ':' delimited
+
 all=$(ls -d */ | grep -v sbatch | tr -d '/');
 y_file=${pd}/${study}_years.txt
 for subject in ${all};do
@@ -352,8 +399,40 @@ for subject in ${all};do
 		echo $line >> $y_file;
 	fi
 done
-	
 
+#-----
 
+# Start renaming...
+lists=($c_nii_list $d_nii_list);
+suffices=($c_suffix $d_suffix)
+idx=0
+for subject in $all;do
+	h_subject="H${runno#H}";
+	for nii_list in @{lists};do	
+		suffix=${suffices[$idx]};
+		for nii in $(grep "^${subject}/" "${nii_list}" 2>dev/null );do
+			year=$(echo $nii | cut -d '/' -f3 | cut -d '/' -f1 | cut -d '-' -f1);
+			year_0=$(grep "^${subject}\:" "${y_file}" | cut -d ':' -f2);
+			year_2=$(grep "^${subject}\:" "${y_file}" 2>/dev/null | cut -d ':' -f3);
+			
+			if [[ -r $year && $year -eq ${year_0} ]];then
+				suff=_y0;
+			else
+				suff=_y2;
+			fi
+			ID="${h_subject}${suff}";
+			prefix=${nii#nii.gz};
+			for kind in 'nii.gz' 'json' 'bval' 'bvec';do
+				o_file=${pd}/${prefix}${kind};
+				if [[ -e ${o_file} ]];then
+					linked_file="${inputs}/${ID}${suffix}.${kind}";
+					if [[ ! -e ${linked_file} ]];then
+						ln -s "${o_file}" "${linked_file}";
+					fi
+				fi
+			done
+		done
+		(($idx++));
+	done
 
 #-----
