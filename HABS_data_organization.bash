@@ -128,34 +128,75 @@ c_type='*fMRI*'
 c_name='fMRI'
 d_type='*DTI*'
 d_name='diffusion'
-fmris=$(for runno in $(ls */${c_type}/ | grep ':' | cut -d '/' -f 1);do echo $runno;done | uniq);
-bvals=$(ls */*/*/*/*bval)
-d_nii_list=$pd/dwi_niis.txt
+
+#------
+
+# Compiling list of 4D niis for fMRI data, and storing in a text file.
+# This file should be deleted if you rerun with any data added or removed.
+c_nii_list=$pd/${c_name}_niis.txt
+
+# Bespoke to fMRI data, we test for a minumum of 7 volumes, but this can be adjusted
+# for other types of multi-dimensional data...including DTI
+more_vols_than = 6;
+
+all_fmri_niis=$(ls */${c_type}/*/*/*.nii.gz);
+
+
+if [[ ! -f ${c_nii_list} ]];then
+	echo "Compiling list of 4D ${c_name} niftis..."
+	for nii in ${all_fmri_niis};do
+		test=$(fslhd ${nii} | grep dim4 | head -1 | tr -s [:space:] ':' | cut -d ':' -f2);
+		if [[ ${test} -gt ${more_vols_than} ]];then
+			echo ${test}
+			echo ${nii} >> $c_nii_list;
+		fi
+	done
+	echo "Done compiling list of 4D ${c_name} niftis."
+else
+	echo "NOTE: List of 4D ${c_name} niftis exists and won't be recompiled'."
+	echo "   File: ${c_nii_list}"
+fi
+
+fmri_subs=$(for nii in $(more ${c_nii_list});do echo ${nii%%/*};done | sort | uniq)
+
 
 # Compiling list of 4D niis for diffusion data, and storing in a text file.
 # This file should be deleted if you rerun with any data added or removed.
+d_nii_list=$pd/${d_name}_niis.txt
+
+# Bespoke to diffusion data, we test for a minumum of 7 volumes, but this can be adjusted
+# for other types of multi-dimensional data...including fMRI
+more_vols_than = 6;
+
+# For usable diffusion data, we need bvals/bvecs, so we look for either of those:
+bvals=$(ls */*/*/*/*bval)
+
+
 if [[ ! -f ${d_nii_list} ]];then
-	echo "Compiling list of 4D diffusion niftis..."
+	echo "Compiling list of 4D ${d_name} niftis..."
 	for bval in ${bvals};do
 		test=$(fslhd ${bval/bval/nii.gz} | grep dim4 | head -1 | tr -s [:space:] ':' | cut -d ':' -f2);
-		if [[ ${test} -gt 5 ]];then
+		if [[ ${test} -gt ${more_vols_than} ]];then
 			echo ${bval/bval/nii.gz} >> $d_nii_list;
 		fi
 	done
-	echo "Done compiling list of 4D diffusion niftis."
+	echo "Done compiling list of 4D ${d_name} niftis."
 else
-	echo "NOTE: List of 4D diffusion niftis exists and won't be recompiled'."
-	echo "File: ${d_nii_list}"
+	echo "NOTE: List of 4D ${d_name} niftis exists and won't be recompiled'."
+	echo "   File: ${d_nii_list}"
 fi
 
 dwi_subs=$(for nii in $(more ${d_nii_list});do echo ${nii%%/*};done | sort | uniq)
+#-----
+# How many subjects only have raw fMRI data, and no usable DTI data?
 
-# We add a protocol prefix (which might change with study) to prevent catching randomly
+# Note: We add a protocol prefix (which might change with study) to prevent catching randomly
 # occurring strings elsewhere in file names
 
 opt_proto_prefix='/AX';
 only_fmri=$(for subject in $fmris;do test=$(grep ${subject}${opt_proto_prefix} ${d_nii_list} | wc -l);if ((! $test));then echo $subject;fi;done | wc -l)
-echo "Number of subjects with only ${c_name} data (no ${d_type}): ${only_fmri}"
+echo "Number of subjects with only ${c_name} data (no ${d_name}): ${only_fmri}"
+echo "Note that some subjects may have ${d_name} data, but are missing the raw 4D stack we want."
 
 # Test for anomolies with MORE than 2 dwis
 anoms='';
@@ -168,6 +209,10 @@ done
 
 if [[ -n $anoms ]];then
 	echo "Please inspect the following subjects, as they appear to have more than the expected maximum of 2 diffusion images:"
-	echo "${anoms}"
+	echo "    ${anoms}"
 fi
 
+# How many subjects only have raw DTI data, and no usable fMRI data?
+only_dwi=$(for subject in $dwi_subs;do test=$(grep ${subject}${opt_proto_prefix} ${d_nii_list} | wc -l);if ((! $test));then echo $subject;fi;done | wc -l)
+echo "Number of subjects with only ${c_name} data (no ${d_name}): ${only_fmri}"
+echo "Note that some subjects may have ${d_name} data, but are missing the raw 4D stack we want."
