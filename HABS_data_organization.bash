@@ -103,7 +103,7 @@ fi
 
 cd $pd;
 
-inputs=$(realpath "${pd}/../${study}_inputs";
+inputs=$(realpath "${pd}/../${study}_inputs");
 
 # Assume only subject and sbatch folders in pd:
 total_subs=$(ls -d */ 2>/dev/null | grep -v sbatch | wc -l)
