@@ -3,6 +3,8 @@
 # Basic preprocessing a data organization of HABS data, hopefully will be portable enough to be adapted for other studies.
 parent_dir=$1;
 
+# We're going to assume that we can write a study inputs folder parallel to the parent_dir
+
 # Assume the first arg is the directory containing the converted niftis
 # Make sure there is a first arg:
 if [[ -n ${parent_dir} ]];then
@@ -100,6 +102,8 @@ if [[ ! -d $sbatch_dir ]];then
 fi
 
 cd $pd;
+
+inputs=$(realpath "${pd}/../${study}_inputs";
 
 # Assume only subject and sbatch folders in pd:
 total_subs=$(ls -d */ 2>/dev/null | grep -v sbatch | wc -l)
@@ -401,8 +405,8 @@ done
 #-----
 
 # Start renaming...
-lists=($c_nii_list $d_nii_list);
-suffices=($c_suffix $d_suffix)
+lists=($c_nii_list $d_nii_list $t_nii_list);
+suffices=($c_suffix $d_suffix $t_suffix)
 idx=0
 for subject in $all;do
 	h_subject="H${runno#H}";
@@ -432,5 +436,5 @@ for subject in $all;do
 		done
 		(($idx++));
 	done
-
+done
 #-----
