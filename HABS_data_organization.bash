@@ -111,18 +111,6 @@ else
 	echo "No further processing will take place..." && exit 1;
 fi
 
-# Count number of apparent subjects with DTI; change c_type and c_name as is appropriate for your data
-d_type='*DTI*'
-c_name='diffusion'
-num_dwis=$(for runno in $(ls */${c_type}/ | grep ':' | cut -d '/' -f 1);do echo $runno;done | uniq| wc -l)
-
-
-# Count number of apparent subjects with fMRI; change c_type and c_name as is appropriate for your data
-c_type='*fMRI*'
-c_name='fMRI'
-num_fmris=$(for runno in $(ls */${c_type}/ | grep ':' | cut -d '/' -f 1);do echo $runno;done | uniq| wc -l)
-echo "Number of subjects with ${c_name} data: ${num_fmris}."
-
 # Count number of fMRI subjects with at least one diffusion:
 c_type='*fMRI*'
 c_name='fMRI'
