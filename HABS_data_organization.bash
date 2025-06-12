@@ -162,12 +162,12 @@ for sub in ${c_subs};do
 		# Convert to arrays for indexing
 		niis=($niis);
 		cksums=($cksums);
-		for ((i=0; i<${#niis[@]}-1; i++)); do
+		for ((i=0; i<${#niis[@]}-1; i++));do
 			nii_1=${niis[$i]};
 			if [[ -n ${nii_1} ]];then
 				ck1=${cksums[$i]};
 				pfx_1=${nii_1%.nii.gz};
-				for ((j=i+1; j<${#niis[@]}; j++)); do
+				for ((j=i+1; j<${#niis[@]}; j++));do
 					nii_2=${niis[$j]};
 					if [[ -n ${nii_2} ]];then
 						ck2=${cksums[$j]};
@@ -191,7 +191,7 @@ for sub in ${c_subs};do
 			if
 		done		
 		re_test=$(grep "^${sub}/" $c_nii_list 2>/dev/null | wc -l) ;
-		if [[ ${test} -gt 2 ]];then
+		if [[ ${re_test} -gt 2 ]];then
 			anoms="${anoms}${sub} ";
 		fi
 	fi
@@ -246,12 +246,12 @@ for sub in ${d_subs};do
 		# Convert to arrays for indexing
 		niis=($niis);
 		cksums=($cksums);
-		for ((i=0; i<${#niis[@]}-1; i++)); do
+		for ((i=0; i<${#niis[@]}-1; i++));do
 			nii_1=${niis[$i]};
 			if [[ -n ${nii_1} ]];then
 				ck1=${cksums[$i]};
 				pfx_1=${nii_1%.nii.gz};
-				for ((j=i+1; j<${#niis[@]}; j++)); do
+				for ((j=i+1; j<${#niis[@]}; j++));do
 					nii_2=${niis[$j]};
 					if [[ -n ${nii_2} ]];then
 						ck2=${cksums[$j]};
@@ -275,7 +275,7 @@ for sub in ${d_subs};do
 			if
 		done		
 		re_test=$(grep "^${sub}/" $d_nii_list 2>/dev/null | wc -l) ;
-		if [[ ${test} -gt 2 ]];then
+		if [[ ${re_test} -gt 2 ]];then
 			anoms="${anoms}${sub} ";
 		fi
 	fi
