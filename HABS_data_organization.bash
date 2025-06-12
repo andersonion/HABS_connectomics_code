@@ -203,6 +203,12 @@ fi
 
 #-----
 
+# How many subjects have both usable data for both fMRI and DtTI?
+
+both_types=$(for subject in $fmri_subs;do echo $dwi_subs | grep ${subject} 2>/dev/null;done | wc -l)
+echo "Number of subjects with both ${c_name} and ${d_name} data: ${both_types}"
+#-----
+
 # How many subjects only have raw fMRI data, and no usable DTI data?
 
 # Note: We add a protocol prefix (which might change with study) to prevent catching randomly
