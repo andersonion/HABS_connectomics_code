@@ -208,7 +208,7 @@ echo "Number of subjects with both ${c_name} and ${d_name} data: ${both_types}"
 # Not needed now, but keeping the code for later...
 opt_proto_prefix='/AX';
 
-only_c=$(for subject in $c_subs;do echo $d_subs | grep ${subject} 2>/dev/null | wc -l);if ((! $test));then echo $subject;fi;done | wc -l)
+only_c=$(for subject in $c_subs;do test=$(echo $d_subs | grep ${subject} 2>/dev/null | wc -l);if ((! $test));then echo $subject;fi;done | wc -l)
 echo "Number of subjects with only ${c_name} data (no ${d_name}): ${only_c}"
 echo "Note that some subjects may have ${d_name} data, but are missing the raw 4D stack we want."
 
@@ -218,7 +218,7 @@ echo "Note that some subjects may have ${d_name} data, but are missing the raw 4
 
 #opt_proto_prefix='/f';
 
-only_d=$(for subject in $d_subs;do echo $c_subs | grep ${subject} 2>/dev/null | wc -l);if ((! $test));then echo $subject;fi;done | wc -l)
+only_d=$(for subject in $d_subs;do test=$(echo $c_subs | grep ${subject} 2>/dev/null | wc -l);if ((! $test));then echo $subject;fi;done | wc -l)
 echo "Number of subjects with only ${d_name} data (no ${c_name}): ${only_d}"
 echo "Note that some subjects may have ${c_name} data, but are missing the raw 4D stack we want."
 
