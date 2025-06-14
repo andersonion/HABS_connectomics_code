@@ -420,13 +420,14 @@ for subject in $all;do
 			year=$(echo $nii | cut -d '/' -f3 | cut -d '/' -f1 | cut -d '-' -f1);
 			year_0=$(grep "^${subject}\:" "${y_file}" | cut -d ':' -f2);
 			year_2=$(grep "^${subject}\:" "${y_file}" 2>/dev/null | cut -d ':' -f3);
-			echo "year = $year_2"
+			
 			if [[ -r $year && $year -eq ${year_0} ]];then
 				suff=_y0;
 			else
 				suff=_y2;
 			fi
 			ID="${h_subject}${suff}";
+			echo $ID
 			prefix=${nii#nii.gz};
 			for kind in 'nii.gz' 'json' 'bval' 'bvec';do
 				o_file=${pd}/${prefix}${kind};
