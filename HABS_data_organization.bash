@@ -414,16 +414,13 @@ suffices=($c_suffix $d_suffix $t_suffix)
 for subject in $all;do
 	idx=0
 	h_subject="H${subject#H}";
-	for nii_list in "${lists[@]}";do
-		echo $nii_list
-		echo $idx	
+	for nii_list in "${lists[@]}";do	
 		suffix=${suffices[$idx]};
 		for nii in $(grep "^${subject}/" "${nii_list}" 2>/dev/null );do
-			echo $nii
 			year=$(echo $nii | cut -d '/' -f3 | cut -d '/' -f1 | cut -d '-' -f1);
 			year_0=$(grep "^${subject}\:" "${y_file}" | cut -d ':' -f2);
 			year_2=$(grep "^${subject}\:" "${y_file}" 2>/dev/null | cut -d ':' -f3);
-			
+			echo "year = $year"
 			if [[ -r $year && $year -eq ${year_0} ]];then
 				suff=_y0;
 			else
