@@ -155,7 +155,7 @@ if [[ ! -f ${c_nii_list} ]];then
 	done
 	echo "Done compiling list of 4D ${c_name} niftis."
 else
-	echo "NOTE: List of 4D ${c_name} niftis exists and won't be recompiled'."
+	echo "NOTE: List of 4D ${c_name} niftis exists and won't be recompiled."
 	echo "   File: ${c_nii_list}"
 fi
 
@@ -243,7 +243,7 @@ if [[ ! -f ${d_nii_list} ]];then
 	done
 	echo "Done compiling list of 4D ${d_name} niftis."
 else
-	echo "NOTE: List of 4D ${d_name} niftis exists and won't be recompiled'."
+	echo "NOTE: List of 4D ${d_name} niftis exists and won't be recompiled."
 	echo "   File: ${d_nii_list}"
 fi
 
@@ -443,3 +443,16 @@ for subject in $all;do
 	done
 done
 #-----
+
+# Run diffusion prep
+sub_script=$GUNNIES/submit_slurm_cluster_job.bash;
+for bvec in $(ls ${inputs}/*bvec);
+	do if [[ -e $bvec ]];then
+		raw_nii=${bvec/bvec/nii\.gz};
+		id=${bvec##*/};
+		id=${id%_DWI*};
+		cmd="bash ${GUNNIES}/human_diffusion_preprocessing_MRtrix.bash ${id} ${raw_nii}";
+		job_name=${id}_diffusion_processing; sub_cmd="${sub_script} ${sbatch_folder} ${job_name} 0 0 ${cmd}";
+		$sub_cmd;
+	fi
+done
