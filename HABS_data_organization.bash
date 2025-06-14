@@ -452,7 +452,8 @@ for bvec in $(ls ${inputs}/*bvec);
 		id=${bvec##*/};
 		id=${id%_DWI*};
 		cmd="bash ${GUNNIES}/human_diffusion_preprocessing_MRtrix.bash ${id} ${raw_nii}";
-		job_name=${id}_diffusion_processing; sub_cmd="${sub_script} ${sbatch_folder} ${job_name} 0 0 ${cmd}";
+		job_name=${id}_diffusion_processing;
+		sub_cmd="${sub_script} ${sbatch_dir} ${job_name} 0 0 ${cmd}";
 		$sub_cmd;
 	fi
 done
