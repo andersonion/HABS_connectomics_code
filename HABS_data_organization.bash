@@ -104,7 +104,7 @@ fi
 cd $pd;
 
 inputs=$(realpath "${pd}/../${study}_inputs");
-echo "Renamed sym_links will be put in 'Inputs' folder: $inputs"
+echo "Renamed sym_links will be put in 'Inputs' folder: $inputs" && exit 0
 if [[ ! -d ${inputs} ]];then
 	mdkir ${inputs};
 fi
@@ -438,7 +438,7 @@ for subject in $all;do
 				fi
 			done
 		done
-		(($idx++));
+		((idx++));
 	done
 done
 #-----
