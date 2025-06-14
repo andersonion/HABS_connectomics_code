@@ -421,7 +421,7 @@ for subject in $all;do
 			year_0=$(grep "^${subject}\:" "${y_file}" | cut -d ':' -f2);
 			year_2=$(grep "^${subject}\:" "${y_file}" 2>/dev/null | cut -d ':' -f3);
 			
-			if [[ -r $year && $year -eq ${year_0} ]];then
+			if [[ -n $year && $year -eq ${year_0} ]];then
 				suff=_y0;
 			else
 				suff=_y2;
