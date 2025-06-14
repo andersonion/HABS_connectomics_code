@@ -428,7 +428,7 @@ for subject in $all;do
 			fi
 			ID="${h_subject}${suff}";
 			echo $ID
-			prefix=${nii#nii.gz};
+			prefix=${nii%nii.gz};
 			for kind in 'nii.gz' 'json' 'bval' 'bvec';do
 				o_file=${pd}/${prefix}${kind};
 				if [[ -e ${o_file} ]];then
