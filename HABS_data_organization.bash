@@ -416,6 +416,7 @@ for subject in $all;do
 	h_subject="H${runno#H}";
 	for nii_list in @{lists};do	
 		suffix=${suffices[$idx]};
+		echo $suffix
 		for nii in $(grep "^${subject}/" "${nii_list}" 2>/dev/null );do
 			echo $nii
 			year=$(echo $nii | cut -d '/' -f3 | cut -d '/' -f1 | cut -d '-' -f1);
