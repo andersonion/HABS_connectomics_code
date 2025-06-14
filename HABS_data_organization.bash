@@ -414,8 +414,9 @@ suffices=($c_suffix $d_suffix $t_suffix)
 for subject in $all;do
 	idx=0
 	h_subject="H${subject#H}";
-	echo $h_subject;
-	for nii_list in @{lists};do	
+	for nii_list in @{lists};do
+		echo $nii_list
+		echo $idx	
 		suffix=${suffices[$idx]};
 		for nii in $(grep "^${subject}/" "${nii_list}" 2>/dev/null );do
 			echo $nii
