@@ -417,6 +417,7 @@ for subject in $all;do
 	for nii_list in @{lists};do	
 		suffix=${suffices[$idx]};
 		for nii in $(grep "^${subject}/" "${nii_list}" 2>/dev/null );do
+			echo $nii
 			year=$(echo $nii | cut -d '/' -f3 | cut -d '/' -f1 | cut -d '-' -f1);
 			year_0=$(grep "^${subject}\:" "${y_file}" | cut -d ':' -f2);
 			year_2=$(grep "^${subject}\:" "${y_file}" 2>/dev/null | cut -d ':' -f3);
