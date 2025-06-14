@@ -413,7 +413,7 @@ suffices=($c_suffix $d_suffix $t_suffix)
 
 for subject in $all;do
 	idx=0
-	h_subject="H${runno#H}";
+	h_subject="H${subject#H}";
 	echo $h_subject;
 	for nii_list in @{lists};do	
 		suffix=${suffices[$idx]};
