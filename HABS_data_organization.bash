@@ -1,5 +1,6 @@
 #! /bin/env bash
-
+# I'm too lazy to encode this an input argument
+runno_prefix_letter='H';
 # Basic preprocessing a data organization of HABS data, hopefully will be portable enough to be adapted for other studies.
 parent_dir=$1;
 
@@ -456,4 +457,24 @@ for bvec in $(ls ${inputs}/*bvec);
 		sub_cmd="${sub_script} ${sbatch_dir} ${job_name} 0 0 ${cmd}";
 		$sub_cmd;
 	fi
+done
+
+
+parent=${WORK}/human/;
+cd $parent;
+mkdir ${study}_symlink_pool
+pool=${parent}${study}_symlink_pool
+runno_list='';
+for runno in $(ls -d diffusion_prep_MRtrix_${runno_prefix_letter}*/ | cut -d 'x' -f2);do
+	runno=${runno/\//};runno=${runno#_};
+	for contrast in dwi fa mask;do
+		file=${parent}diffusion_prep_MRtrix_${runno}/${runno}_${contrast}.nii.gz;
+		link=${pool}/${runno}_${contrast}.nii.gz;
+		if [[ ! -e $link && -f $file ]];then
+			if [[ $contrast == dwi ]];then
+				runno_list="${runno_list}${runno},";
+			fi;
+			ln -s $file $link;
+		fi
+	done
 done
