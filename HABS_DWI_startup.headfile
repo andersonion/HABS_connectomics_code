@@ -1,0 +1,144 @@
+### REQUIRED PARAMETERS ###
+project_name=25.HABS.01
+optional_external_inputs_dir=/mnt/newStor/paros/paros_WORK/human/HABS_symlink_pool/
+no_new_inputs=0
+
+control_comma_list=H4369_y0,H4369_y2,H4487_y0,H4528_y0,H4528_y2,H4531_y0,H4531_y2,H4557_y0,H4557_y2,H4558_y0,H4558_y2,H4562_y0,H4562_y2,H4567_y0,H4567_y2,H4641_y2,H4738_y2,H4739_y2,H4758_y0,H4789_y0,H4789_y2,H4806_y0,H4837_y2,H4857_y0,H4857_y2,H4874_y0,H4882_y0,H4882_y2,H4884_y0,H4884_y2,H4888_y0,H4888_y2,H4893_y0,H4893_y2,H4894_y0,H4894_y2,H4900_y0,H4904_y2,H4905_y0,H4906_y0,H4907_y2,H4908_y0,H4908_y2,H4911_y0,H4912_y0,H4912_y2,H4913_y2,H4916_y0,H4916_y2,H4925_y2,H4926_y0,H4928_y0,H4928_y2,H4931_y0,H4932_y0,H4932_y2,H4933_y0,H4933_y2,H4937_y0,H4937_y2,H4939_y0,H4939_y2,H4941_y0,H4941_y2,H4942_y0,H4942_y2,H4943_y0,H4944_y0,H4944_y2,H4946_y0,H4946_y2,H4947_y0,H4947_y2,H4948_y0,H4948_y2,H4949_y0,H4952_y0,H4952_y2,H4953_y0,H4953_y2,H4955_y0,H4957_y0,H4957_y2,H4960_y0,H4962_y0,H4962_y2,H4963_y0,H4963_y2,H4965_y2,H4966_y0,H4966_y2,H4975_y0,H4975_y2,H4976_y0,H4976_y2,H4977_y0,H4977_y2,H4979_y0,H4979_y2,H4980_y2,H4983_y0,H4986_y0,H4986_y2,H4987_y0,H4987_y2,H4988_y2,H4990_y0,H4990_y2,H4991_y0,H4991_y2,H4993_y0,H4993_y2,H4998_y0,H4998_y2,H7113_y0,H7113_y2,H7213_y0,H7213_y2,H7215_y0,H7215_y2,H7230_y2,H7234_y2,H7246_y2,H7260_y0,H7260_y2,H7277_y0,H7277_y2,H7282_y0,H7299_y0,H7299_y2,H7313_y0,H7313_y2,H7344_y0,H7349_y0,H7350_y2,H7352_y0,H7353_y0,H7353_y2,H7356_y0,H7356_y2,H7361_y0,H7361_y2,H7364_y0,H7364_y2,H7365_y0,H7366_y0,H7366_y2,H7367_y0,H7368_y0,H7368_y2,H7369_y0,H7371_y0,H7372_y0,H7372_y2,H7374_y0,H7374_y2,H7375_y0,H7378_y2,H7379_y2,H7381_y0,H7381_y2,H7382_y2,H7383_y0,H7383_y2,H7387_y2,H7388_y2,H7395_y0,H7397_y0,H7397_y2,H7406_y0,H7406_y2,H7407_y0,H7410_y0,H7410_y2,H7413_y0,H7413_y2,H7416_y0,H7416_y2,H7420_y2,H7421_y0,H7423_y0,H7423_y2,H7427_y0,H7428_y0,H7428_y2,H7429_y0,H7434_y0,H7434_y2,H7435_y2,H7436_y0,H7438_y0,H7438_y2,H7440_y0,H7440_y2,H7443_y0,H7443_y2,H7445_y0,H7445_y2,H7448_y0,H7449_y0,H7449_y2,H7451_y0,H7451_y2,H7460_y2,H7461_y0,H7461_y2,H7464_y0,H7464_y2,H7468_y0,H7468_y2,H7471_y0,H7471_y2,H7473_y0,H7475_y0,H7478_y2,H7481_y0,H7481_y2,H7482_y0,H7483_y0,H7483_y2,H7486_y0,H7487_y0,H7487_y2,H7488_y2,H7489_y0,H7489_y2,H7491_y0,H7491_y2,H7493_y0,H7493_y2,H7494_y2,H7497_y0,H7497_y2,H7498_y0,H7498_y2,H7500_y2,H7501_y2,H7503_y0,H7504_y0,H7504_y2,H7507_y0,H7518_y0,H7521_y0,H7521_y2,H7524_y0,H7524_y2,H7583_y0,H7583_y2,H7584_y0,H7584_y2,H7628_y0,H7628_y2,H7741_y0,H7741_y2,H7850_y0,H7850_y2,H7872_y0,H7894_y0,H7894_y2,H7921_y2,H7954_y2,H8019_y0,H8019_y2,H8026_y2,H8030_y0,H8030_y2,H8031_y0,H8031_y2,H8034_y2,H8039_y0,H8039_y2,H8043_y0,H8046_y0,H8065_y2,H8070_y0,H8070_y2,H8072_y0,H8072_y2,H8083_y2,H8093_y0,H8093_y2,H8095_y0,H8101_y2,H8102_y0,H8102_y2,H8103_y2,H8106_y0,H8106_y2,H8108_y0,H8109_y0,H8109_y2,H8110_y0,H8111_y0,H8113_y0,H8120_y2,H8121_y0,H8123_y0,H8125_y0,H8125_y2,H8126_y0,H8129_y2,H8133_y2,H8138_y0,H8138_y2,H8142_y0,H8142_y2,H8147_y0,H8147_y2,H8155_y0,H8156_y0,H8157_y0,H8157_y2,H8158_y0,H8158_y2,H8161_y2,H8170_y0,H8177_y0,H8177_y2,H8182_y0,H8182_y2,H8185_y0,H8185_y2,H8186_y0,H8188_y0,H8197_y2,H8199_y0,H8200_y0,H8201_y0,H8201_y2,H8205_y2,H8206_y0,H8206_y2,H8207_y0,H8207_y2,H8208_y0,H8208_y2,H8212_y2,H8215_y2,H8216_y0,H8216_y2,H8221_y2,H8224_y0,H8229_y2,H8230_y2,H8232_y0,H8235_y0,H8237_y0,H8237_y2,H8240_y2,H8249_y0,H8249_y2,H8250_y0,H8250_y2,H8251_y0,H8251_y2,H8252_y0,H8255_y0,H8255_y2,H8260_y0,H8260_y2,H8261_y0,H8271_y0,H8271_y2,H8302_y2,H8309_y0,H8309_y2,H8357_y0,H8364_y0,H8364_y2,H8365_y0,H8365_y2,H8369_y0,H8369_y2,H8382_y0,H8382_y2,H8383_y0,H8383_y2,H8433_y0,H8433_y2,H8447_y0,H8470_y0,H8475_y0,H8475_y2,H8476_y0,H8476_y2,H8481_y0,H8481_y2,H8515_y2,H8518_y0,H8518_y2,H8519_y0,H8569_y0,H8569_y2,H8570_y2,H8607_y0,H8656_y2,H8663_y0,H8663_y2,H8666_y0,H8684_y2,H8693_y0,H8719_y0,H8719_y2,H8726_y0,H8726_y2,H8752_y0,H8752_y2,H8771_y0,H8771_y2,H8779_y2,H8782_y2,H8790_y2,H8807_y0,H8807_y2,H8879_y2,H8889_y0,H8896_y2,H8897_y0,H8897_y2,H8925_y0,H8925_y2,H8930_y0,H8930_y2,H8942_y2,H8961_y0,H8961_y2,H8970_y0,H8970_y2,H9047_y0,H9047_y2,H9090_y0,H9094_y0,H9106_y0,H9107_y0,H9191_y0,H9199_y0,H9199_y2,H9200_y0,H9255_y2,H9298_y0,H9298_y2,H9301_y2,H9335_y2,H9423_y0,H9423_y2,H9501_y2,H9503_y0,H9503_y2,H9509_y0,H9540_y0,H9540_y2,H9541_y0,H9541_y2,H9546_y0,H9546_y2,H9618_y0,H9618_y2,H9631_y0,H9631_y2,H9632_y0,H9649_y0,H9649_y2,H9671_y0,H9671_y2,H9693_y0,H9693_y2,H9761_y2,H9769_y0,H9769_y2,H9785_y0,H9785_y2,H9817_y0,H9823_y0,H9823_y2,H9827_y0,H9827_y2,H9839_y0,H9839_y2,H9859_y0,H9862_y0,H9871_y2,H9882_y0,H9882_y2,H9912_y0,H9912_y2,H9930_y2,H9948_y0,H9948_y2,H9955_y0,H9955_y2,H9977_y2
+## Hint: control_comma_list should include all runnos that you want to contribute to the creation of the MDT (aka template)
+
+compare_comma_list=H4369_y0,H4369_y2,H4487_y0,H4528_y0,H4528_y2,H4531_y0,H4531_y2,H4557_y0,H4557_y2,H4558_y0,H4558_y2,H4562_y0,H4562_y2,H4567_y0,H4567_y2,H4641_y2,H4738_y2,H4739_y2,H4758_y0,H4789_y0,H4789_y2,H4806_y0,H4837_y2,H4857_y0,H4857_y2,H4874_y0,H4882_y0,H4882_y2,H4884_y0,H4884_y2,H4888_y0,H4888_y2,H4893_y0,H4893_y2,H4894_y0,H4894_y2,H4900_y0,H4904_y2,H4905_y0,H4906_y0,H4907_y2,H4908_y0,H4908_y2,H4911_y0,H4912_y0,H4912_y2,H4913_y2,H4916_y0,H4916_y2,H4925_y2,H4926_y0,H4928_y0,H4928_y2,H4931_y0,H4932_y0,H4932_y2,H4933_y0,H4933_y2,H4937_y0,H4937_y2,H4939_y0,H4939_y2,H4941_y0,H4941_y2,H4942_y0,H4942_y2,H4943_y0,H4944_y0,H4944_y2,H4946_y0,H4946_y2,H4947_y0,H4947_y2,H4948_y0,H4948_y2,H4949_y0,H4952_y0,H4952_y2,H4953_y0,H4953_y2,H4955_y0,H4957_y0,H4957_y2,H4960_y0,H4962_y0,H4962_y2,H4963_y0,H4963_y2,H4965_y2,H4966_y0,H4966_y2,H4975_y0,H4975_y2,H4976_y0,H4976_y2,H4977_y0,H4977_y2,H4979_y0,H4979_y2,H4980_y2,H4983_y0,H4986_y0,H4986_y2,H4987_y0,H4987_y2,H4988_y2,H4990_y0,H4990_y2,H4991_y0,H4991_y2,H4993_y0,H4993_y2,H4998_y0,H4998_y2,H7113_y0,H7113_y2,H7213_y0,H7213_y2,H7215_y0,H7215_y2,H7230_y2,H7234_y2,H7246_y2,H7260_y0,H7260_y2,H7277_y0,H7277_y2,H7282_y0,H7299_y0,H7299_y2,H7313_y0,H7313_y2,H7344_y0,H7349_y0,H7350_y2,H7352_y0,H7353_y0,H7353_y2,H7356_y0,H7356_y2,H7361_y0,H7361_y2,H7364_y0,H7364_y2,H7365_y0,H7366_y0,H7366_y2,H7367_y0,H7368_y0,H7368_y2,H7369_y0,H7371_y0,H7372_y0,H7372_y2,H7374_y0,H7374_y2,H7375_y0,H7378_y2,H7379_y2,H7381_y0,H7381_y2,H7382_y2,H7383_y0,H7383_y2,H7387_y2,H7388_y2,H7395_y0,H7397_y0,H7397_y2,H7406_y0,H7406_y2,H7407_y0,H7410_y0,H7410_y2,H7413_y0,H7413_y2,H7416_y0,H7416_y2,H7420_y2,H7421_y0,H7423_y0,H7423_y2,H7427_y0,H7428_y0,H7428_y2,H7429_y0,H7434_y0,H7434_y2,H7435_y2,H7436_y0,H7438_y0,H7438_y2,H7440_y0,H7440_y2,H7443_y0,H7443_y2,H7445_y0,H7445_y2,H7448_y0,H7449_y0,H7449_y2,H7451_y0,H7451_y2,H7460_y2,H7461_y0,H7461_y2,H7464_y0,H7464_y2,H7468_y0,H7468_y2,H7471_y0,H7471_y2,H7473_y0,H7475_y0,H7478_y2,H7481_y0,H7481_y2,H7482_y0,H7483_y0,H7483_y2,H7486_y0,H7487_y0,H7487_y2,H7488_y2,H7489_y0,H7489_y2,H7491_y0,H7491_y2,H7493_y0,H7493_y2,H7494_y2,H7497_y0,H7497_y2,H7498_y0,H7498_y2,H7500_y2,H7501_y2,H7503_y0,H7504_y0,H7504_y2,H7507_y0,H7518_y0,H7521_y0,H7521_y2,H7524_y0,H7524_y2,H7583_y0,H7583_y2,H7584_y0,H7584_y2,H7628_y0,H7628_y2,H7741_y0,H7741_y2,H7850_y0,H7850_y2,H7872_y0,H7894_y0,H7894_y2,H7921_y2,H7954_y2,H8019_y0,H8019_y2,H8026_y2,H8030_y0,H8030_y2,H8031_y0,H8031_y2,H8034_y2,H8039_y0,H8039_y2,H8043_y0,H8046_y0,H8065_y2,H8070_y0,H8070_y2,H8072_y0,H8072_y2,H8083_y2,H8093_y0,H8093_y2,H8095_y0,H8101_y2,H8102_y0,H8102_y2,H8103_y2,H8106_y0,H8106_y2,H8108_y0,H8109_y0,H8109_y2,H8110_y0,H8111_y0,H8113_y0,H8120_y2,H8121_y0,H8123_y0,H8125_y0,H8125_y2,H8126_y0,H8129_y2,H8133_y2,H8138_y0,H8138_y2,H8142_y0,H8142_y2,H8147_y0,H8147_y2,H8155_y0,H8156_y0,H8157_y0,H8157_y2,H8158_y0,H8158_y2,H8161_y2,H8170_y0,H8177_y0,H8177_y2,H8182_y0,H8182_y2,H8185_y0,H8185_y2,H8186_y0,H8188_y0,H8197_y2,H8199_y0,H8200_y0,H8201_y0,H8201_y2,H8205_y2,H8206_y0,H8206_y2,H8207_y0,H8207_y2,H8208_y0,H8208_y2,H8212_y2,H8215_y2,H8216_y0,H8216_y2,H8221_y2,H8224_y0,H8229_y2,H8230_y2,H8232_y0,H8235_y0,H8237_y0,H8237_y2,H8240_y2,H8249_y0,H8249_y2,H8250_y0,H8250_y2,H8251_y0,H8251_y2,H8252_y0,H8255_y0,H8255_y2,H8260_y0,H8260_y2,H8261_y0,H8271_y0,H8271_y2,H8302_y2,H8309_y0,H8309_y2,H8357_y0,H8364_y0,H8364_y2,H8365_y0,H8365_y2,H8369_y0,H8369_y2,H8382_y0,H8382_y2,H8383_y0,H8383_y2,H8433_y0,H8433_y2,H8447_y0,H8470_y0,H8475_y0,H8475_y2,H8476_y0,H8476_y2,H8481_y0,H8481_y2,H8515_y2,H8518_y0,H8518_y2,H8519_y0,H8569_y0,H8569_y2,H8570_y2,H8607_y0,H8656_y2,H8663_y0,H8663_y2,H8666_y0,H8684_y2,H8693_y0,H8719_y0,H8719_y2,H8726_y0,H8726_y2,H8752_y0,H8752_y2,H8771_y0,H8771_y2,H8779_y2,H8782_y2,H8790_y2,H8807_y0,H8807_y2,H8879_y2,H8889_y0,H8896_y2,H8897_y0,H8897_y2,H8925_y0,H8925_y2,H8930_y0,H8930_y2,H8942_y2,H8961_y0,H8961_y2,H8970_y0,H8970_y2,H9047_y0,H9047_y2,H9090_y0,H9094_y0,H9106_y0,H9107_y0,H9191_y0,H9199_y0,H9199_y2,H9200_y0,H9255_y2,H9298_y0,H9298_y2,H9301_y2,H9335_y2,H9423_y0,H9423_y2,H9501_y2,H9503_y0,H9503_y2,H9509_y0,H9540_y0,H9540_y2,H9541_y0,H9541_y2,H9546_y0,H9546_y2,H9618_y0,H9618_y2,H9631_y0,H9631_y2,H9632_y0,H9649_y0,H9649_y2,H9671_y0,H9671_y2,H9693_y0,H9693_y2,H9761_y2,H9769_y0,H9769_y2,H9785_y0,H9785_y2,H9817_y0,H9823_y0,H9823_y2,H9827_y0,H9827_y2,H9839_y0,H9839_y2,H9859_y0,H9862_y0,H9871_y2,H9882_y0,H9882_y2,H9912_y0,H9912_y2,H9930_y2,H9948_y0,H9948_y2,H9955_y0,H9955_y2,H9977_y2
+## Hint: compare_comma_list should include all runnos that should be independently re-registered to the final MDT once it has been created.
+
+#group_1_runnos=N51211,N51221,N51231,N51383,N51386
+#group_2_runnos=N51136,N51201,N51234,N51241,N51252
+## Hint: group_1_runnos and group_2_runnos should be mutually exclusive, as they are used for VBA and label statistical comparisons
+
+#custom_predictor_string=nos2_vs_cvn
+## Hint: This is optional, and is how you can "name" the groups; i.e. nos2 is the name of group_1 and cvn is the name of group_2 in the example above.
+## Hint: This will default to control_vs_treated if not specified.
+
+channel_comma_list=dwi,fa,mask
+## Hint: At a minimum, this must at least include any contrasts used to drive registration.
+
+# Rigid (coarse) alignment options
+rigid_atlas_name=IITmean_RPI
+rigid_contrast=dwi
+
+# Non-linear (diffeomorphic) registration options
+mdt_contrast=fa
+mdt_creation_strategy=iterative
+## Hint: options for mdt_creation_strategy include 'iterative' and 'pairwise'
+
+mdt_iterations=6
+## Hint: You want at least 4 mdt_iterations, as this is the first fully-sampled level
+
+diffeo_transform_parameters=0.5,3,0.5
+diffeo_iterations=1000x1000x1000x60
+
+### Various optional parameters ###
+
+#optional_suffix=April2017analysis
+## Hint: optional_suffix will be appended to the main directory names, before -inputs/-work/-results.
+
+# HABS data has consistent dimension and resolution
+
+vbm_reference_space=native
+#vbm_reference_space=IITmean_RPI
+## Hint: vbm_reference_space can be a specific runno, an arbitrary image, the name of an atlas, or 'native' (the first control runno).
+
+
+## Connectivity processing options
+
+#convert_labels_to_RAS=1
+## Hint: historically, the default working orientation is ALS, so convert_labels_to_RAS will turn final labels from ALS to RAS.
+
+do_connectivity=0
+## Hint: do_connectivity=1 will process the 4D diffusion nifti stack and bvals/bvecs to be used as input into another program such mrtrix or DSI studio
+##       Only DSI studio is fully supported right now for bval/bvec processing and formatting.
+
+#eddy_current_correction=1
+## Hint: When turned on eddy current correction was used during DTI tensor processing, the resulting rotations will be applied to the bvecs as well.
+
+
+## Affine registration options
+
+#affine_contrast=dwi
+#affine_target=N51231
+## Hint: affine_target will be the first control runno if not specified.  Future support will allow for the average of the rigidly aligned images to be the affine registration target.
+
+
+## Image orientation options 
+
+working_image_orientation=RPI
+## Hint: All work will be performed in working_image_orientation, which is ALS by default which is based on the current standard atlas orientation.
+## Hint: Support of arbitrary orientations is forthcoming, and will be RAS in the future.
+
+original_study_orientation=RPI
+## Hint: This describes the current orientation of all the incoming images, assuming they are uniformly oriented.
+## Hint: Support for handling outliers is forthcoming and will be in the form of:
+##       original_orientation_N51201=LPI (i.e. original_orientation_$runno=...)
+original_orientation_R6524_y4=LPS
+
+
+#flip_x=1
+## Hint: flip_x=1 will rotate incoming images from PRS to ALS.
+## Hint: This will be deprecated shortly.
+
+
+#flip_z=0
+## Hint: flip_z=1 will rotate incoming images from ARI to ALS.
+## Hint: This will be deprecated shortly.
+
+## Hint: flip_x=1 and flip_z=1 will take images from PLI to ALS.
+
+
+
+
+# Label options
+create_labels=1
+label_atlas_name=IITmean_RPI
+## Hint: This is the name of the ANATOMY (i.e. images) upon which your source labels are overlaid
+
+#label_input_file=
+## Hint: If the name of your labels does not exactly match the label_atlas_name--perhaps due to multiple
+##       versions of labels for the same anatomicaly atlas
+
+
+label_space=pre_rigid
+## Hint: Multiple, comma-limited label_space options can be specified, and include:
+##       'pre_rigid': Native space of incoming images without any transforms applied
+##       'post_rigid' (or 'pre_affine'): Only the rigid linear transform will be applied to the images (no scaling or shearing)
+##       'post_affine': The rigid and affine linear transforms will be applied to the images (translation+rotation+scaling+shearing)
+##       'MDT': All images will be affinely and diffeomorphically mapped into the MDT label set
+##       'atlas': All images will be affinely and diffeomorphically mapped into the original atlas label set	
+  
+# Masking/skull-stripping options	
+skull_strip_contrast=dwi
+## Hint: our automated skull-stripping is optimized for dwi
+
+threshold_code=4
+do_mask=1
+port_atlas_mask=0
+## Hint: port_atlas_mask will align and scale the atlas mask to the results of the automated skull-stripping
+
+#pre_masked=0
+## Hint: pre_masked=1 will result in do_mask=0; this is if your input images are already masked.
+
+
+## VBA Options
+
+do_vba=0
+
+#vba_contrast_comma_list=dwi,fa,e1,jac
+## Hint: If not all contrasts should be analyzed with VBA, this comma-delimited list of image contrasts will specify which ones will be used with VBA. If this variable is not set, VBA will be performed on all available contrasts (except the nii4D).
+
+#smoothing_comma_list=1,2,3,0.1mm
+## Hint: This comma-delimited list specifies the smoothing radii you want to try before performing VBA; no specified units defaults to 'vox', while 'mm' can be specified if need be.
+
+#vba_analysis_software=surfstat
+## Hint: multiple comma-delimited options can be specified and include: surfstat (default),fsl,ANTsR, and spm.
+## Hint: fsl must be included if you want to do nonparametric testing
+
+#nonparametric_permutations=6000
+#fdr_masks=ROI:51:1051,label:1:2:3:4:5:6,fa:0.3:1
+## Hint: Full help on how to specify ROI/label-based and threshholded contrast-based fdr maps is forthcoming.
