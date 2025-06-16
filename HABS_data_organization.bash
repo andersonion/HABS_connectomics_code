@@ -462,7 +462,10 @@ done
 
 parent=${WORK}/human/;
 cd $parent;
-mkdir ${study}_symlink_pool
+sym_pool=${study}_symlink_pool
+if [[ ! -d ${symn_pool} ]];then
+	mkdir ${sym_pool}
+fi
 pool=${parent}${study}_symlink_pool
 runno_list='';
 for runno in $(ls -d diffusion_prep_MRtrix_${runno_prefix_letter}*/ | cut -d 'x' -f2);do
@@ -478,3 +481,7 @@ for runno in $(ls -d diffusion_prep_MRtrix_${runno_prefix_letter}*/ | cut -d 'x'
 		fi
 	done
 done
+
+
+## Use this command to produce a comma-separated string of available DWI runnos to add to SAMBA headfile:
+# list='';for runno in $(ls *fa* | cut -d 'f' -f1);do runno=${runno%_};list="${list}${runno},";done
