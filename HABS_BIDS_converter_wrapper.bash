@@ -6,7 +6,7 @@ if [[ ! -d ${BIDS_dir} ]];then
 	mkdir -p ${BIDS_dir}
 fi
 
-cd ${WORK}/${study}/${study}_inputs/
+cd ${WORK}/${study}_inputs/
 
 list=$(ls *fMRI_nii4D.nii.gz | cut -d 'f' -f1);
 list=$(echo $list | tr [:space:] 'X');
