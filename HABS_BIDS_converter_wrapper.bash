@@ -3,7 +3,7 @@ study=HABS
 BIDS_dir=${WORK}/human/${study}/${study}_BIDS/
 
 if [[ ! -d ${BIDS_dir} ]];then
-	mkdir ${BIDS_dir}
+	mkdir -p ${BIDS_dir}
 fi
 
 cd ${WORK}/${study}/${study}_inputs/
