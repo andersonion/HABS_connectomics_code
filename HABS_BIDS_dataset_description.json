@@ -1,0 +1,22 @@
+{
+    "Name": "HABS",
+    "BIDSVersion": "1.8.0",
+    "License": "",
+    "Authors": [
+        "Robert Anderson",
+        "Alexandra Badea"
+    ],
+    "Acknowledgements": "",
+    "HowToAcknowledge": "",
+    "Funding": [
+        "",
+        "",
+        ""
+    ],
+    "ReferencesAndLinks": [
+        "",
+        "",
+        ""
+    ],
+    "DatasetDOI": "HABS_RJA"
+}
