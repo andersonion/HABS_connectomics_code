@@ -4,7 +4,7 @@
 #SBATCH  --mem=30000 
 #SBATCH  -v
 #SBATCH  -s 
-#SBATCH  --output=/mnt/newStor/paros/paros_WORK/mouse//VBM_25ADNI01_IITmean_RPI-results/papertrail/sbatch/slurm-%j.out 
+#SBATCH  --output=/mnt/newStor/paros/paros_WORK/mouse//VBM_25HABS01_IITmean_RPI-results/papertrail/sbatch/slurm-%j.out 
 #$ -l h_vmem=30000M,vf=30000M 
 #$ -N create_backported_labels
 #$ -M rja20@duke.edu 
@@ -18,7 +18,7 @@ template_prefix="faMDT_NoNameYet_n491_i6"
 
 echo "Backporting labels to raw space for runno: ${runno}";
 out_dir="${BIGGUS_DISKUS}/VBM_25${project}01_IITmean_RPI-results/connectomics/${runno}/";
-work="${BIGGUS_DISKUS}/VBM_25${projects}01_IITmean_RPI-work/"
+work="${BIGGUS_DISKUS}/VBM_25${project}01_IITmean_RPI-work/"
 if [[ ! -d ${out_dir} ]];then
     mkdir -pm 775 ${out_dir};
 fi
