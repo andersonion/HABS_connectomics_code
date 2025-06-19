@@ -151,7 +151,10 @@ if [[ ! -f ${c_nii_list} ]];then
 	for nii in ${all_c_niis};do
 		test=$(fslhd ${nii} | grep dim4 | head -1 | tr -s [:space:] ':' | cut -d ':' -f2);
 		if [[ ${test} -gt ${more_vols_than} ]];then
-			echo ${nii} >> $c_nii_list;
+			test_2=$(grep "^${nii}" "${c_nii_list}" 2>/dev/null | wc -l );
+			if ((!${test_2}));then
+				echo ${nii} >> $c_nii_list;
+			fi
 		fi
 	done
 	echo "Done compiling list of 4D ${c_name} niftis."
@@ -237,9 +240,13 @@ bvals=$(ls */*/*/*/*bval)
 if [[ ! -f ${d_nii_list} ]];then
 	echo "Compiling list of 4D ${d_name} niftis..."
 	for bval in ${bvals};do
-		test=$(fslhd ${bval/bval/nii.gz} | grep dim4 | head -1 | tr -s [:space:] ':' | cut -d ':' -f2);
+		nii=${bval/bval/nii.gz}
+		test=$(fslhd ${nii} | grep dim4 | head -1 | tr -s [:space:] ':' | cut -d ':' -f2);
 		if [[ ${test} -gt ${more_vols_than} ]];then
-			echo ${bval/bval/nii.gz} >> $d_nii_list;
+			test_2=$(grep "^${nii}" "${d_nii_list}" 2>/dev/null | wc -l );
+			if ((!${test_2}));then
+				echo ${nii} >> $d_nii_list;
+			fi
 		fi
 	done
 	echo "Done compiling list of 4D ${d_name} niftis."
@@ -328,7 +335,10 @@ if [[ ! -f ${t_nii_list} ]];then
 	for nii in ${all_t_niis};do
 		test=$(fslhd ${nii} | grep dim4 | head -1 | tr -s [:space:] ':' | cut -d ':' -f2);
 		if [[ ${test} -gt ${more_vols_than} ]];then
-			echo ${nii} >> $t_nii_list;
+			test_2=$(grep "^${nii}" "${c_nii_list}" 2>/dev/null | wc -l );
+			if ((!${test_2}));then
+				echo ${nii} >> $t_nii_list;
+			fi
 		fi
 	done
 	echo "Done compiling list of ${dim}${t_name} niftis."
@@ -347,6 +357,16 @@ echo "Number of subjects with ${t_name} data: ${num_t}."
 
 old_num_c=${num_c};
 old_c_subs=$c_subs;
+
+usable_c_list=$( \
+	for nii in $(more ${c_nii_list});do \
+		person=${nii%%/*}; \
+		year=${nii#*/}; \
+		year=${year%%-*}; \
+		test=$(grep "${person}/" ${t_nii_list}) 2>/dev/null | grep "/${year}-" 2>/dev/null | wc -l); \
+		if ((${test}));then \
+			
+		 )
 
 num_c=$(for subject in $c_subs;do echo $t_subs | grep ${subject} 2>/dev/null;done | wc -l)
 c_subs=$(for subject in $c_subs;do echo $t_subs | grep ${subject} 2>/dev/null)
