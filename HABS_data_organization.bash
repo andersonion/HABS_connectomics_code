@@ -343,6 +343,19 @@ echo "Number of subjects with ${t_name} data: ${num_t}."
 
 #------
 
+# Maybe we should update the number of 'usable fMRI' data sets to include only those with both fMRI and T1?
+
+old_num_c=${num_c};
+old_c_subs=$c_subs;
+
+num_c=$(for subject in $c_subs;do echo $t_subs | grep ${subject} 2>/dev/null;done | wc -l)
+c_subs=$(for subject in $c_subs;do echo $t_subs | grep ${subject} 2>/dev/null)
+echo "Number of subjects with both ${c_name} and ${t_name} data: ${num_c}"
+
+echo "This is reduces our ${c_type} count from ${old_num_c} to ${num_c}."
+
+#------
+
 # How many subjects have both usable data for both fMRI and DtTI?
 
 both_types=$(for subject in $c_subs;do echo $d_subs | grep ${subject} 2>/dev/null;done | wc -l)
@@ -463,7 +476,7 @@ done
 parent=${WORK}/human/;
 cd $parent;
 sym_pool=${study}_symlink_pool
-if [[ ! -d ${symn_pool} ]];then
+if [[ ! -d ${sym_pool} ]];then
 	mkdir ${sym_pool}
 fi
 pool=${parent}${study}_symlink_pool
