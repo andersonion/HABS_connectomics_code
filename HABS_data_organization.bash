@@ -358,18 +358,24 @@ echo "Number of subjects with ${t_name} data: ${num_t}."
 old_num_c=${num_c};
 old_c_subs=$c_subs;
 
-usable_c_list=$( \
-	for nii in $(more ${c_nii_list});do \
-		person=${nii%%/*}; \
-		year=${nii#*/}; \
-		year=${year%%-*}; \
-		test=$(grep "${person}/" ${t_nii_list}) 2>/dev/null | grep "/${year}-" 2>/dev/null | wc -l); \
-		if ((${test}));then \
-			
-		 )
+usable_c_nii_list=$pd/usable_${c_name}_niis.txt
+
+for nii in $(more ${c_nii_list});do
+	person=${nii%%/*};
+	year=${nii#*/};
+	year=${year%%-*};
+	test=$(grep "${person}/" ${usable_c_nii_list}) 2>/dev/null | grep "/${year}-" 2>/dev/null | wc -l);
+	if ((${test}));then 
+		test_2=$(grep "^${nii}" "${usable_c_nii_list}" 2>/dev/null | wc -l ); 
+		if ((!${test_2}));then 
+			echo ${nii} >> ${usable_c_nii_list};
+		fi
+	 fi
+ done
 
 num_c=$(for subject in $c_subs;do echo $t_subs | grep ${subject} 2>/dev/null;done | wc -l)
-c_subs=$(for subject in $c_subs;do echo $t_subs | grep ${subject} 2>/dev/null)
+#c_subs=$(for subject in $c_subs;do echo $t_subs | grep ${subject} 2>/dev/null)
+c_subs=$(for nii in $(more ${usable_c_nii_list});do echo ${nii%%/*};done | sort | uniq)
 echo "Number of subjects with both ${c_name} and ${t_name} data: ${num_c}"
 
 echo "This is reduces our ${c_type} count from ${old_num_c} to ${num_c}."
@@ -406,7 +412,8 @@ echo "   Note that some subjects may have ${c_name} data, but are missing the ra
 #-----
 
 # Identify longitudinal fMRIs
-long_c=$(for sub in ${c_subs};do test=$(grep "^${sub}/" "$c_nii_list" 2>/dev/null | wc -l) ;if [[ ${test} -eq 2 ]];then echo $sub;fi;done)
+#long_c=$(for sub in ${c_subs};do test=$(grep "^${sub}/" "$c_nii_list" 2>/dev/null | wc -l) ;if [[ ${test} -eq 2 ]];then echo $sub;fi;done)
+long_c=$(for sub in ${c_subs};do test=$(grep "^${sub}/" "$usable_c_nii_list" 2>/dev/null | wc -l) ;if [[ ${test} -eq 2 ]];then echo $sub;fi;done)
 n_long_c=$(echo $long_c | wc -w)
 echo "Number of subjects with longitudinal ${c_name} data: ${n_long_c}"
 
