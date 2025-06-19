@@ -364,7 +364,7 @@ for nii in $(more ${c_nii_list});do
 	person=${nii%%/*};
 	year=${nii#*/};
 	year=${year%%-*};
-	test=$(grep "${person}/" ${usable_c_nii_list}) 2>/dev/null | grep "/${year}-" 2>/dev/null | wc -l);
+	test=$(grep "${person}\/" ${usable_c_nii_list}) 2>/dev/null | grep "\/${year}-" 2>/dev/null | wc -l);
 	if ((${test}));then 
 		test_2=$(grep "^${nii}" "${usable_c_nii_list}" 2>/dev/null | wc -l ); 
 		if ((!${test_2}));then 
