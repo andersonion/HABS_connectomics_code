@@ -364,6 +364,7 @@ for nii in $(more ${c_nii_list});do
 	person=${nii%%/*};
 	echo $person;
 	year=${nii#*/};
+	year=${year#*/};
 	year=${year%%-*};
 	echo $year;
 	test=$(grep "${person}/" ${usable_c_nii_list} 2>/dev/null | grep "/${year}-" 2>/dev/null | wc -l);
