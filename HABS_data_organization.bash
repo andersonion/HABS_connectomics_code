@@ -362,11 +362,18 @@ usable_c_nii_list=$pd/usable_${c_name}_niis.txt
 
 for nii in $(more ${c_nii_list});do
 	person=${nii%%/*};
+	echo $person;
 	year=${nii#*/};
 	year=${year%%-*};
-	test=$(grep "${person}\/" ${usable_c_nii_list} 2>/dev/null | grep "\/${year}-" 2>/dev/null | wc -l);
-	if ((${test}));then 
-		test_2=$(grep "^${nii}" "${usable_c_nii_list}" 2>/dev/null | wc -l ); 
+	echo $year;
+	test=$(grep "${person}/" ${usable_c_nii_list} 2>/dev/null | grep "/${year}-" 2>/dev/null | wc -l);
+	if ((${test}));then
+		if [[ -e ${usable_c_nii_list} ]];then
+			test_2=$(grep "^${nii}" "${usable_c_nii_list}" 2>/dev/null | wc -l );
+		else
+			test_2=0;
+		fi
+		
 		if ((!${test_2}));then 
 			echo ${nii} >> ${usable_c_nii_list};
 		fi
