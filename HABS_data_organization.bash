@@ -384,7 +384,7 @@ num_c=$(for subject in $c_subs;do echo $t_subs | grep ${subject} 2>/dev/null;don
 c_subs=$(for nii in $(more ${usable_c_nii_list});do echo ${nii%%/*};done | sort | uniq)
 echo "Number of subjects with both ${c_name} and ${t_name} data: ${num_c}"
 
-echo "This is reduces our ${c_type} count from ${old_num_c} to ${num_c}."
+echo "This is reduces our ${c_name} count from ${old_num_c} to ${num_c}."
 
 #------
 
