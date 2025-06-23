@@ -3,6 +3,8 @@ import json
 import os
 from pathlib import Path
 
+WORK = os.environ['WORK']
+
 # --- CONFIGURE THESE ---
 bids_root = Path("$WORK/human/HABS/HABS_BIDS")
 reference_json = Path("$WORK/human/HABS/HABS_BIDS/sub-H4980y0/func/sub-H4980y0_task-rest_bold.json")
