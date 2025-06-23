@@ -6,8 +6,8 @@ from pathlib import Path
 WORK = os.environ['WORK']
 
 # --- CONFIGURE THESE ---
-bids_root = Path("$WORK/human/HABS/HABS_BIDS")
-reference_json = Path("$WORK/human/HABS/HABS_BIDS/sub-H4980y0/func/sub-H4980y0_task-rest_bold.json")
+bids_root = Path(f"{WORK}/human/HABS/HABS_BIDS")
+reference_json = Path(f"{WORK}/human/HABS/HABS_BIDS/sub-H4980y0/func/sub-H4980y0_task-rest_bold.json")
 
 # --- Load SliceTiming from reference ---
 with open(reference_json, 'r') as f:
