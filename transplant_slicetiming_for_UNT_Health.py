@@ -19,7 +19,7 @@ if "SliceTiming" not in ref_data:
 slice_timing = ref_data["SliceTiming"]
 
 # --- Loop through all JSON files ---
-for json_file in bids_root.rglob("*.json"):
+for json_file in bids_root.rglob("*task-rest_bold.json"):
     with open(json_file, 'r') as f:
         data = json.load(f)
 
