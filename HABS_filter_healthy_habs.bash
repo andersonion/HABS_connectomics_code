@@ -1,180 +1,188 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Input (can be overridden): a CSV focused on subjects with connectomics
-INPUT_CSV="${1:-HABS_maestro_metadata.csv}"
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 <HABS_maestro_metadata.csv> [--clinical <clinical.csv>]"
+  exit 1
+fi
 
-# Outputs
+MAESTRO="$1"; shift || true
+CLINICAL=""
+
+if [[ "${1-}" == "--clinical" ]]; then
+  shift
+  CLINICAL="${1-}"; shift || true
+fi
+
 OUT_ROWS="healthy_rows.csv"
 OUT_SUBJ="healthy_subjects.txt"
 
-# Column name candidates (case-insensitive matching)
-# Tweak/add aliases here if your headers differ.
-MEDID_CANDS=("Med_ID" "MedID" "Subject" "Subject_ID" "subject_id" "Med_ID.x" "Med_ID.y")
-VISIT_CANDS=("Visit_ID" "VisitID" "Visit" "Visit_ID.x" "Visit_ID.y")
-DIAB_CANDS=("Diabetes" "Diabetes_Consensus" "DiabetesYN" "Diag_Diabetes")
-A1C_CANDS=("HbA1c" "A1C" "HBA1C" "HbA1c_percent")
-NPDX_CANDS=("Neuropsych_Consensus_Diagnosis" "NP_Dx" "NP_Diagnosis" "Cognitive_Diagnosis" "Consensus_Diagnosis")
-CDRSOB_CANDS=("CDR_Sum_of_Boxes" "CDR_SOB" "CDR_SumBoxes" "CDR_Sum_Of_Boxes")
+python - <<'PY'
+import csv, sys, os
 
-# Helper: find a header column by trying a list of candidates (case-insensitive).
-find_col_ci() {
-  local header="$1"; shift
-  for cand in "$@"; do
-    # anchor to whole field, case-insensitive
-    if echo "$header" | awk -vRS=',' -vIGNORECASE=1 '{print}' | grep -qiE "^${cand}$"; then
-      echo "$cand"
-      return 0
-    fi
-  done
-  return 1
-}
+# ----- inputs from bash -----
+maestro = os.environ.get("MAESTRO", None)
+clinical = os.environ.get("CLINICAL", "")
 
-HEADER="$(head -n1 "$INPUT_CSV")"
+# pull from parent env
+for k in ("MAESTRO","CLINICAL","OUT_ROWS","OUT_SUBJ"):
+    globals()[k] = os.environ.get(k)
 
-MED_ID="$(find_col_ci "$HEADER" "${MEDID_CANDS[@]}")"        || { echo "ERROR: Med_ID column not found."; exit 1; }
-# Visit not strictly required for this filter, but we try to find it for completeness
-VISIT_ID="$(find_col_ci "$HEADER" "${VISIT_CANDS[@]}")"      || true
-DIAB_COL="$(find_col_ci "$HEADER" "${DIAB_CANDS[@]}")"       || true
-A1C_COL="$(find_col_ci "$HEADER" "${A1C_CANDS[@]}")"         || true
-NP_DX_COL="$(find_col_ci "$HEADER" "${NPDX_CANDS[@]}")"      || true
-CDR_SOB_COL="$(find_col_ci "$HEADER" "${CDRSOB_CANDS[@]}")"  || true
+# Column alias candidates (case-insensitive matching)
+MEDID_CANDS = ["Med_ID","MedID","Subject","Subject_ID","subject_id","Med_ID.x","Med_ID.y"]
+VISIT_CANDS = ["Visit_ID","VisitID","Visit","Visit_ID.x","Visit_ID.y"]
+DIAB_CANDS  = ["Diabetes","Diabetes_Consensus","DiabetesYN","Diag_Diabetes"]
+A1C_CANDS   = ["HbA1c","A1C","HBA1C","HbA1c_percent"]
+NPDX_CANDS  = ["Neuropsych_Consensus_Diagnosis","NP_Dx","NP_Diagnosis","Cognitive_Diagnosis","Consensus_Diagnosis"]
+CDR_CANDS   = ["CDR_Sum_of_Boxes","CDR_SOB","CDR_SumBoxes","CDR_Sum_Of_Boxes"]
 
-echo "Detected columns:"
-echo "  Med_ID:        ${MED_ID}"
-echo "  Visit_ID:      ${VISIT_ID:-<none>}"
-echo "  Diabetes:      ${DIAB_COL:-<none>}"
-echo "  HbA1c:         ${A1C_COL:-<none>}"
-echo "  NP Diagnosis:  ${NP_DX_COL:-<none>}"
-echo "  CDR SumBoxes:  ${CDR_SOB_COL:-<none>}"
-echo
+def open_csv(path):
+    with open(path, newline='', encoding='utf-8') as f:
+        r = csv.DictReader(f)
+        rows = list(r)
+        header = r.fieldnames or []
+    return header, rows
 
-# Prefer Miller (mlr) for CSV correctness
-if command -v mlr >/dev/null 2>&1; then
-  echo "Using Miller (mlr) for CSV filtering…"
+def find_col(header, cands):
+    hmap = { (h or "").strip().lower(): h for h in header }
+    for c in cands:
+        k = c.strip().lower()
+        if k in hmap:
+            return hmap[k]
+    return None
 
-  # Build Miller filter expression:
-  # Healthy if:
-  #   (Diabetes == "No" OR (missing) OR (A1c present and < 6.5))
-  # AND
-  #   (NP Diagnosis indicates cognitively unimpaired OR CDR_Sum_of_Boxes == 0)
-  #
-  # We treat missing Diabetes as unknown; then rely on A1c if present.
-  # For cognition: prefer NP consensus text when present; else fall back to CDR sum boxes == 0.
+def norm(s):
+    return (s or "").strip()
 
-  # Escape column names that might contain spaces by using ${...} in Miller.
-  d_diab=''
-  if [[ -n "${DIAB_COL:-}" ]]; then
-    d_diab="(is_present(\$${DIAB_COL}) && tolower(\$${DIAB_COL}) == \"no\")"
-  else
-    d_diab="false"
-  fi
+def low(s):
+    return norm(s).lower()
 
-  d_a1c=''
-  if [[ -n "${A1C_COL:-}" ]]; then
-    d_a1c="(is_present(\$${A1C_COL}) && is_numeric(\$${A1C_COL}) && \$${A1C_COL} < 6.5)"
-  else
-    d_a1c="false"
-  fi
+def to_float(s):
+    try:
+        return float(norm(s))
+    except:
+        return None
 
-  c_np=''
-  if [[ -n "${NP_DX_COL:-}" ]]; then
-    c_np="(is_present(\$${NP_DX_COL}) && matches(tolower(\$${NP_DX_COL}), \"^cognitively[ _-]*unimpaired|^normal cognition|^cu$\"))"
-  else
-    c_np="false"
-  fi
+# Load maestro
+mh, mrows = open_csv(MAESTRO)
+mid_col   = find_col(mh, MEDID_CANDS)
+v_col     = find_col(mh, VISIT_CANDS)
 
-  c_cdr=''
-  if [[ -n "${CDR_SOB_COL:-}" ]]; then
-    c_cdr="(is_present(\$${CDR_SOB_COL}) && is_numeric(\$${CDR_SOB_COL}) && \$${CDR_SOB_COL} == 0)"
-  else
-    c_cdr="false"
-  fi
+if not mid_col:
+    print("ERROR: Med_ID column not found in maestro.", file=sys.stderr)
+    sys.exit(2)
 
-  mlr --csv filter " ( (${d_diab}) || (${d_a1c}) ) && ( (${c_np}) || (${c_cdr}) ) " \
-    then sort -f "${MED_ID}" \
-    "$INPUT_CSV" > "$OUT_ROWS"
+# Optionally load clinical and index for join
+clin_idx = {}
+if CLINICAL:
+    ch, crows = open_csv(CLINICAL)
+    cmid_col  = find_col(ch, MEDID_CANDS) or "Med_ID"
+    cv_col    = find_col(ch, VISIT_CANDS)
+    # candidate clinical columns
+    diab_col  = find_col(ch, DIAB_CANDS)
+    a1c_col   = find_col(ch, A1C_CANDS)
+    npdx_col  = find_col(ch, NPDX_CANDS)
+    cdr_col   = find_col(ch, CDR_CANDS)
 
-  # Unique subject list
-  mlr --csv cut -f "${MED_ID}" "$OUT_ROWS" \
-    | mlr --csv uniq -a \
-    | tail -n +2 > "$OUT_SUBJ"
+    # build index by (Med_ID, Visit_ID) if available, else by Med_ID
+    if cv_col:
+        for r in crows:
+            clin_idx[(norm(r.get(cmid_col)), norm(r.get(cv_col)))] = r
+    else:
+        for r in crows:
+            clin_idx[(norm(r.get(cmid_col)), "")] = r
 
-else
-  echo "Miller not found. Falling back to gawk (robust CSV FPAT)…"
+else:
+    diab_col = a1c_col = npdx_col = cdr_col = None
 
-  # gawk CSV parser with quoted fields
-  # Build index lookup for columns
-  gawk -v IGNORECASE=1 -v OFS=',' \
-       -v MED_ID="${MED_ID}" -v DIAB_COL="${DIAB_COL}" -v A1C_COL="${A1C_COL}" \
-       -v NP_DX_COL="${NP_DX_COL}" -v CDR_SOB_COL="${CDR_SOB_COL}" '
-    BEGIN{
-      FPAT = "([^,]+)|(\"([^\"]|\"\")*\")"  # parse CSV fields incl. quotes
-      healthy_rows_file = "'"$OUT_ROWS"'"
-      subj_file = "'"$OUT_SUBJ"'"
-    }
-    NR==1{
-      # header -> map names to indices (case-insensitive)
-      for(i=1;i<=NF;i++){
-        h=toupper(gensub(/^"|"$/,"","g",$i))
-        idx[h]=i
-      }
-      midx = idx[toupper(MED_ID)]
-      d_idx = (DIAB_COL==""?0:idx[toupper(DIAB_COL)])
-      a1_idx = (A1C_COL==""?0:idx[toupper(A1C_COL)])
-      np_idx = (NP_DX_COL==""?0:idx[toupper(NP_DX_COL)])
-      cdr_idx = (CDR_SOB_COL==""?0:idx[toupper(CDR_SOB_COL)])
+# If maestro itself carries usable columns, prefer them
+m_diab  = find_col(mh, DIAB_CANDS)
+m_a1c   = find_col(mh, A1C_CANDS)
+m_npdx  = find_col(mh, NPDX_CANDS)
+m_cdr   = find_col(mh, CDR_CANDS)
 
+# Helper: fetch a value from maestro first, else from clinical join
+def get_field(mrow, key):
+    if key == "diab":
+        col = m_diab or diab_col
+    elif key == "a1c":
+        col = m_a1c or a1c_col
+    elif key == "npdx":
+        col = m_npdx or npdx_col
+    elif key == "cdr":
+        col = m_cdr or cdr_col
+    else:
+        return None
+    if col and col in mrow and norm(mrow.get(col)):
+        return mrow.get(col)
+    # clinical fallback
+    if not CLINICAL: return None
+    mk = norm(mrow.get(mid_col))
+    mv = norm(mrow.get(v_col)) if v_col else ""
+    r = clin_idx.get((mk, mv)) or clin_idx.get((mk, ""))
+    if not r: return None
+    return r.get(col)
 
-      # write header to healthy_rows.csv
-      header_line=$0
-      print header_line > healthy_rows_file
-      next
-    }
-    {
-      # helpers
-      function trimq(s){ gsub(/^"|"$/,"",s); return s }
-      function tol(s){ s=trimq(s); return tolower(s) }
-      function num(s,  t){ t=trimq(s); gsub(/[^0-9.+-eE]/,"",t); return t }
+def diabetes_negative(mrow):
+    v_diab = get_field(mrow, "diab")
+    if low(v_diab) == "no":
+        return True
+    # fallback to A1c if we have it
+    v_a1c = get_field(mrow, "a1c")
+    if v_a1c is not None:
+        x = to_float(v_a1c)
+        if x is not None and x < 6.5:
+            return True
+    return False
 
-      # Diabetes rule
-      diab_ok = 0
-      if(d_idx>0){
-        dval = tol($d_idx)
-        if(dval=="no") diab_ok=1
-      }
-      # A1c rule
-      a1c_ok = 0
-      if(a1_idx>0){
-        a1 = num($a1_idx)
-        if(a1!="" && a1+0 < 6.5) a1c_ok=1
-      }
-      diabetes_pass = (diab_ok || a1c_ok)
+def cognitively_unimpaired(mrow):
+    v_np = get_field(mrow, "npdx")
+    if v_np:
+        t = low(v_np)
+        if t.startswith("cognitively unimpaired") or t == "normal cognition" or t == "cu":
+            return True
+    v_cdr = get_field(mrow, "cdr")
+    if v_cdr is not None:
+        x = to_float(v_cdr)
+        if x is not None and x == 0.0:
+            return True
+    return False
 
-      # Cognition rule
-      cog_ok = 0
-      if(np_idx>0){
-        nd = tol($np_idx)
-        if(nd ~ /^cognitively[ _-]*unimpaired/ || nd ~ /^normal cognition$/ || nd=="cu") cog_ok=1
-      }
-      if(!cog_ok && cdr_idx>0){
-        cdr = num($cdr_idx)
-        if(cdr!="" && cdr+0==0) cog_ok=1
-      }
+# Decide if we even have enough signal to filter
+have_any_diab = (m_diab or diab_col or m_a1c or a1c_col)
+have_any_cog  = (m_npdx or npdx_col or m_cdr or cdr_col)
 
-      if(diabetes_pass && cog_ok){
-        print $0 >> healthy_rows_file
-        mids[trimq($(midx))]=1
-      }
-    }
-    END{
-      # write unique Med_IDs
-      for(m in mids) if(m!="") print m > subj_file
-    }
-  ' "$INPUT_CSV"
-fi
+if not (have_any_diab and have_any_cog):
+    msg = []
+    if not have_any_diab:
+        msg.append("Diabetes/A1c")
+    if not have_any_cog:
+        msg.append("Cognition (NP consensus / CDR)")
+    print("WARNING: Missing columns: " + ", ".join(msg), file=sys.stderr)
+    if not CLINICAL:
+        print("Hint: provide a clinical export via --clinical <clinical.csv> so we can join in those fields.", file=sys.stderr)
 
-echo "Wrote:"
-echo "  $OUT_ROWS"
-echo "  $OUT_SUBJ"
-	
+# Filter
+kept = []
+for r in mrows:
+    if diabetes_negative(r) and cognitively_unimpaired(r):
+        kept.append(r)
+
+# Write healthy_rows.csv (with maestro header order)
+with open(OUT_ROWS, "w", newline='', encoding='utf-8') as f:
+    w = csv.DictWriter(f, fieldnames=mh)
+    w.writeheader()
+    for r in kept:
+        w.writerow(r)
+
+# Write healthy_subjects.txt
+seen = set()
+with open(OUT_SUBJ, "w", encoding='utf-8') as f:
+    for r in kept:
+        mid = norm(r.get(mid_col))
+        if mid and mid not in seen:
+            seen.add(mid)
+            f.write(mid + "\n")
+
+print(f"Wrote {OUT_ROWS} ({len(kept)} rows) and {OUT_SUBJ} ({len(seen)} unique Med_IDs).")
+PY
