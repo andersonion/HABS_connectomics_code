@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-HABS Maestro metadata builder (verbose, headers fixed, clinical date inference)
+HABS Maestro metadata builder (verbose, header fix, clinical/biomarker safety + inference)
 
 - Normalizes headers (spaces -> underscores) across ALL inputs.
 - Compiles ordered runnos from connectome dirs (start- and end-patterns).
 - Extracts subject (Med_ID without 'H') + visit (0/2 from _y*).
 - Pulls Sex/Acq_Date from ADNI_HABS_dual_2years_2_05_2025.csv using (Subject, Visit->BL/M24).
-- Loads Genomics*.csv and Clinical HD 1/2/3*.csv (headers normalized).
-- Clinical selection per runno:
-    1) Expect Visit_ID == 1 for _y0, Visit_ID == 3 for _y2.
-    2) If not found, infer by date: choose Interview_Date closest to the imaging target date (BL/M24) from the dual file, searching across HD 1,2,3.
+- Loads Genomics*.csv and *both* Clinical HD 1/2/3*.csv and Biomarker HD 1/2/3*.csv (headers normalized).
+- Selection per runno for Clinical and Biomarker:
+    * visit 0 (_y0): ONLY HD1 allowed, prefer Visit_ID==1 else nearest Interview_Date to BL date.
+    * visit 2 (_y2): ONLY HD2/HD3 allowed (never HD1), prefer Visit_ID==3 else nearest Interview_Date to M24 date.
 - Cleans values: strings with any whitespace -> 'CUT'; -9999 (numeric or string) -> empty.
 - Drops duplicate-identical and constant columns.
-- Logs missing Genomics/Clinical together in one CSV.
+- Logs missing Genomics/Clinical/Biomarker together in one CSV.
 - Writes output to /mnt/newStor/... (fallback to $WORK if needed).
 """
 
@@ -61,7 +61,7 @@ RUNNO_AT_END_PATTERN = re.compile(r"(H[^_/\\]+_y[02])(?=\.csv$)", re.IGNORECASE)
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Replace spaces with underscores in column names."""
     df = df.copy()
-    df.columns = [c.replace(" ", "_") for c in df.columns]
+    df.columns = [c.strip().replace(" ", "_") for c in df.columns]
     return df
 
 def parse_date_cols(df: pd.DataFrame, prefer_cols: Optional[List[str]] = None) -> pd.DataFrame:
@@ -76,12 +76,10 @@ def parse_date_cols(df: pd.DataFrame, prefer_cols: Optional[List[str]] = None) -
             if c in df.columns:
                 df[c] = pd.to_datetime(df[c], errors="coerce", infer_datetime_format=True)
                 tried.add(c)
-    # Parse any other date-ish columns
     for c in df.columns:
-        if c in tried:
+        if c in tried: 
             continue
-        lc = c.lower()
-        if "date" in lc:
+        if "date" in c.lower():
             df[c] = pd.to_datetime(df[c], errors="coerce", infer_datetime_format=True)
     return df
 
@@ -175,16 +173,13 @@ def load_first_csv_table(path: Path) -> pd.DataFrame:
     missing = required - set(df.columns)
     if missing:
         _p(f"[WARN] First CSV missing expected columns: {sorted(missing)}")
-    # string-normalize keys
     for c in ["Subject", "Visit"]:
         if c in df.columns:
             df[c] = df[c].astype(str).str.strip()
     return df
 
 def build_dual_date_map(df_dual: pd.DataFrame) -> Dict[str, Dict[str, pd.Timestamp]]:
-    """
-    Returns {subject: {'BL': date_or_NaT, 'M24': date_or_NaT}}
-    """
+    """Returns {subject: {'BL': date_or_NaT, 'M24': date_or_NaT}}"""
     out: Dict[str, Dict[str, pd.Timestamp]] = {}
     if df_dual.empty:
         return out
@@ -209,7 +204,6 @@ def build_lookup_on_med_id(df: pd.DataFrame, label: str) -> pd.DataFrame:
         return df
     out = df.copy()
     out["Med_ID"] = out["Med_ID"].astype(str).str.strip()
-    # parse dates in clinical/genomics too (Interview_Date etc.)
     out = parse_date_cols(out, prefer_cols=["Interview_Date"])
     _p(f"[OK] {label}: unique Med_IDs={out['Med_ID'].nunique(dropna=True)}")
     return out
@@ -237,12 +231,8 @@ def clean_values(df: pd.DataFrame) -> pd.DataFrame:
       (dates are parsed to datetime before this, so they won't be affected)
     """
     df = df.copy()
-
-    # -9999 -> NaN
     df.replace(-9999, pd.NA, inplace=True)
     df.replace(to_replace=r'^\s*-9999\s*$', value=pd.NA, regex=True, inplace=True)
-
-    # strings-with-whitespace -> 'CUT' (preserve NaNs)
     for col in df.columns:
         if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
             s = df[col].astype("string")
@@ -251,84 +241,76 @@ def clean_values(df: pd.DataFrame) -> pd.DataFrame:
             df[col] = s
     return df
 
-# ---------- clinical selection ----------
-def choose_clinical_row_for_run(
+# ---------- selection helpers ----------
+def _gather_candidates_for_subject(df: pd.DataFrame, subject: str) -> pd.DataFrame:
+    if df.empty or "Med_ID" not in df.columns:
+        return pd.DataFrame()
+    subdf = df[df["Med_ID"] == subject].copy()
+    if subdf.empty:
+        return subdf
+    # numeric Visit_ID helper
+    if "Visit_ID" in subdf.columns:
+        subdf["_Visit_ID_num"] = pd.to_numeric(subdf["Visit_ID"], errors="coerce")
+    else:
+        subdf["_Visit_ID_num"] = pd.NA
+    # usable date for distance
+    date_col = None
+    if "Interview_Date" in subdf.columns:
+        date_col = "Interview_Date"
+    else:
+        for c in subdf.columns:
+            if "date" in c.lower():
+                date_col = c; break
+    if date_col:
+        subdf["_date_col"] = date_col
+        subdf["_dt"] = pd.to_datetime(subdf[date_col], errors="coerce", infer_datetime_format=True)
+    else:
+        subdf["_date_col"] = pd.NA
+        subdf["_dt"] = pd.NaT
+    return subdf
+
+def choose_best_row(
     subject: str,
-    visit: str,  # "0" or "2"
-    target_date: pd.Timestamp,
-    clin1: pd.DataFrame,
-    clin2: pd.DataFrame,
-    clin3: pd.DataFrame
+    visit: str,                  # "0" or "2"
+    target_date: pd.Timestamp,   # BL/M24 or Acq_Date fallback
+    allowed: List[Tuple[int, pd.DataFrame]],  # list of (bucket_num, df)
+    expected_visit_id: int       # 1 for y0, 3 for y2
 ) -> Tuple[Optional[pd.Series], Optional[int]]:
     """
-    Returns (selected_row, selected_hd_bucket) where bucket is 1,2,3.
-    Preference:
-      1) Rows with Visit_ID == expected (1 for y0, 3 for y2), choose nearest Interview_Date to target_date.
-      2) Otherwise, across HD 1/2/3, choose the row with Interview_Date nearest to target_date.
+    Only considers the provided allowed buckets.
+    1) Prefer exact Visit_ID==expected_visit_id among allowed; pick min date-distance.
+    2) Else choose min date-distance across all allowed.
     """
-    expected_visit_id = 1 if visit == "0" else 3
+    candidates: List[Tuple[pd.Series, int, pd.Timedelta]] = []
 
-    candidates: List[Tuple[pd.Series, int]] = []
-    for bucket, df in ((1, clin1), (2, clin2), (3, clin3)):
-        if df.empty or "Med_ID" not in df.columns:
-            continue
-        subdf = df[df["Med_ID"] == subject]
+    for bucket, df in allowed:
+        subdf = _gather_candidates_for_subject(df, subject)
         if subdf.empty:
             continue
-        # Normalize Visit_ID to numeric (coerce)
-        if "Visit_ID" in subdf.columns:
-            # Keep original but create a numeric helper
-            visit_num = pd.to_numeric(subdf["Visit_ID"], errors="coerce")
-            subdf = subdf.assign(_Visit_ID_num=visit_num)
+        # distance to target_date (NaT -> inf)
+        if pd.isna(target_date):
+            subdf["_dist"] = pd.Timedelta.max
         else:
-            subdf = subdf.assign(_Visit_ID_num=pd.NA)
-
-        # Add a date column we can compute distance on: prefer Interview_Date, else any *_Date col
-        date_col = None
-        if "Interview_Date" in subdf.columns:
-            date_col = "Interview_Date"
-        else:
-            # Find any date-like column already parsed
-            for c in subdf.columns:
-                if "date" in c.lower():
-                    date_col = c
-                    break
-        if date_col is None:
-            # No usable date; still allow selection but distance is inf
-            for _, r in subdf.iterrows():
-                candidates.append((r, bucket))
-        else:
-            # Attach distance to target_date (NaT -> inf)
-            dt = pd.to_datetime(subdf[date_col], errors="coerce", infer_datetime_format=True)
-            if pd.isna(target_date):
-                dist = pd.Series(np.inf, index=subdf.index)
-            else:
-                dist = (dt - target_date).abs()
-                # NaT -> NaT.abs() -> NaT, set to inf
-                dist = dist.fillna(pd.Timedelta.max)
-            subdf = subdf.assign(_dist=dist)
-            for _, r in subdf.iterrows():
-                candidates.append((r, bucket))
+            dd = (subdf["_dt"] - target_date).abs()
+            subdf["_dist"] = dd.fillna(pd.Timedelta.max)
+        for _, r in subdf.iterrows():
+            candidates.append((r, bucket, r["_dist"] if "_dist" in r else pd.Timedelta.max))
 
     if not candidates:
         return None, None
 
-    # 1) Try exact Visit_ID match
-    exact = [(r, b) for (r, b) in candidates if not pd.isna(r.get("_Visit_ID_num")) and int(r["_Visit_ID_num"]) == expected_visit_id]
+    exact = [(r, b, d) for (r, b, d) in candidates if not pd.isna(r.get("_Visit_ID_num")) and int(r["_Visit_ID_num"]) == expected_visit_id]
     if exact:
-        # Among exact, pick smallest distance if available
-        exact_with_dist = [ (r, b, r.get("_dist", pd.Timedelta.max)) for (r,b) in exact ]
-        exact_with_dist.sort(key=lambda t: (pd.Timedelta.max if pd.isna(t[2]) else t[2]))
-        r, b, _ = exact_with_dist[0]
+        exact.sort(key=lambda t: t[2])  # by distance
+        r, b, _ = exact[0]
         return r, b
 
-    # 2) No exact Visit_ID → choose nearest by date across all
-    with_dist = [ (r, b, r.get("_dist", pd.Timedelta.max)) for (r,b) in candidates ]
-    with_dist.sort(key=lambda t: (pd.Timedelta.max if pd.isna(t[2]) else t[2]))
-    r, b, _ = with_dist[0]
+    # no exact Visit_ID among allowed -> nearest by date among allowed
+    candidates.sort(key=lambda t: t[2])
+    r, b, _ = candidates[0]
     return r, b
 
-# ---------- main merge ----------
+# ---------- main ----------
 def main():
     try:
         _p("[START] HABS Maestro metadata build")
@@ -341,7 +323,6 @@ def main():
 
         # 2) First CSV
         df_dual = load_first_csv_table(HABS_DUAL_FILE)
-        # Build map of BL/M24 imaging dates per subject for inference
         subj_to_visit_dates = build_dual_date_map(df_dual)
 
         # 3) Genomics
@@ -350,15 +331,20 @@ def main():
             df_gen_all = df_gen_all.drop(columns=["Age"])
         df_gen_all = build_lookup_on_med_id(df_gen_all, "Genomics")
 
-        # 4) Clinical (load 1, 2, and 3)
+        # 4) Clinical (1/2/3) and Biomarker (1/2/3)
         df_clin1_all = build_lookup_on_med_id(safe_concat_csvs(str(METADATA_DIR / "Clinical HD 1*.csv"), "Clinical HD 1*.csv"), "Clinical HD 1")
         df_clin2_all = build_lookup_on_med_id(safe_concat_csvs(str(METADATA_DIR / "Clinical HD 2*.csv"), "Clinical HD 2*.csv"), "Clinical HD 2")
         df_clin3_all = build_lookup_on_med_id(safe_concat_csvs(str(METADATA_DIR / "Clinical HD 3*.csv"), "Clinical HD 3*.csv"), "Clinical HD 3")
+
+        df_bio1_all = build_lookup_on_med_id(safe_concat_csvs(str(METADATA_DIR / "Biomarker HD 1*.csv"), "Biomarker HD 1*.csv"), "Biomarker HD 1")
+        df_bio2_all = build_lookup_on_med_id(safe_concat_csvs(str(METADATA_DIR / "Biomarker HD 2*.csv"), "Biomarker HD 2*.csv"), "Biomarker HD 2")
+        df_bio3_all = build_lookup_on_med_id(safe_concat_csvs(str(METADATA_DIR / "Biomarker HD 3*.csv"), "Biomarker HD 3*.csv"), "Biomarker HD 3")
 
         # 5) Build rows + track missing
         _p("[STEP] Building merged rows…")
         miss_genomics: Set[str] = set()
         miss_clinical: Set[str] = set()
+        miss_biomarker: Set[str] = set()
         rows = []
 
         for i, runno in enumerate(runnos, 1):
@@ -368,8 +354,9 @@ def main():
             try:
                 runno_str, subject, visit = subject_visit_from_runno(runno)
                 visit_code = map_visit_code(visit)
+                expected_visit_id = 1 if visit == "0" else 3
 
-                # First CSV lookup (Sex, Acq_Date) using dual
+                # First CSV lookup (Sex, Acq_Date)
                 sel = df_dual[(df_dual.get("Subject") == subject) & (df_dual.get("Visit") == visit_code)]
                 if sel.empty:
                     sex = pd.NA
@@ -378,10 +365,10 @@ def main():
                     sex = sel.iloc[0].get("Sex", pd.NA)
                     acq_date = sel.iloc[0].get("Acq_Date", pd.NaT)
 
-                # Target date for clinical inference: prefer the visit-coded date from dual map
+                # Target date for inference: prefer BL/M24 map; fallback to Acq_Date
                 target_date = subj_to_visit_dates.get(subject, {}).get(visit_code, pd.NaT)
                 if pd.isna(target_date):
-                    target_date = acq_date  # fallback to the imaging Acq_Date we pulled for the run
+                    target_date = acq_date
 
                 row = {"runno": runno_str, "Subject": subject, "Sex": sex, "Acq_Date": acq_date}
 
@@ -397,13 +384,45 @@ def main():
                 else:
                     miss_genomics.add(runno_str)
 
-                # ----- Clinical (choose from HD 1/2/3 with Visit_ID safety + date inference)
-                selected, bucket = choose_clinical_row_for_run(subject, visit, target_date, df_clin1_all, df_clin2_all, df_clin3_all)
-                if selected is None:
+                # ----- Clinical (allowed buckets per visit)
+                if visit == "0":
+                    clin_allowed = [(1, df_clin1_all)]  # ONLY HD1
+                else:
+                    clin_allowed = [(2, df_clin2_all), (3, df_clin3_all)]  # ONLY HD2/HD3
+
+                clin_sel, clin_bucket = choose_best_row(
+                    subject=subject,
+                    visit=visit,
+                    target_date=target_date,
+                    allowed=clin_allowed,
+                    expected_visit_id=expected_visit_id
+                )
+                if clin_sel is None:
                     miss_clinical.add(runno_str)
                 else:
-                    row["Clinical_HD_Source"] = bucket  # Keep which bucket we chose (1/2/3)
-                    for k, v in selected.to_dict().items():
+                    row["Clinical_HD_Source"] = clin_bucket
+                    for k, v in clin_sel.to_dict().items():
+                        if k not in row:
+                            row[k] = v
+
+                # ----- Biomarker (allowed buckets per visit; same rules)
+                if visit == "0":
+                    bio_allowed = [(1, df_bio1_all)]
+                else:
+                    bio_allowed = [(2, df_bio2_all), (3, df_bio3_all)]
+
+                bio_sel, bio_bucket = choose_best_row(
+                    subject=subject,
+                    visit=visit,
+                    target_date=target_date,
+                    allowed=bio_allowed,
+                    expected_visit_id=expected_visit_id
+                )
+                if bio_sel is None:
+                    miss_biomarker.add(runno_str)
+                else:
+                    row["Biomarker_HD_Source"] = bio_bucket
+                    for k, v in bio_sel.to_dict().items():
                         if k not in row:
                             row[k] = v
 
@@ -424,61 +443,6 @@ def main():
         df_out = clean_values(df_out)
 
         # 6) Reorder base fields first
-        base_order = ["runno", "Subject", "Sex", "Acq_Date", "Clinical_HD_Source"]
+        base_order = ["runno", "Subject", "Sex", "Acq_Date", "Clinical_HD_Source", "Biomarker_HD_Source"]
         remaining = [c for c in df_out.columns if c not in base_order]
-        df_out = df_out[[c for c in base_order if c in df_out.columns] + remaining]
-        _p(f"[OK] Raw merged shape (post-clean): {df_out.shape}")
-
-        # 7) Deduplicate identical columns
-        before = df_out.shape[1]
-        df_out = remove_duplicate_identical_columns(df_out)
-        after_dup = df_out.shape[1]
-        _p(f"[CLEAN] Dropped {before - after_dup} duplicate-identical columns")
-
-        # 8) Drop constant columns
-        before2 = df_out.shape[1]
-        df_out = remove_constant_columns(df_out)
-        after_const = df_out.shape[1]
-        _p(f"[CLEAN] Dropped {before2 - after_const} constant columns")
-        _p(f"[OK] Final shape: {df_out.shape}")
-
-        # 9) Write CSV
-        out_path = PRIMARY_OUT_PATH
-        out_dir = out_path.parent
-        try:
-            out_dir.mkdir(parents=True, exist_ok=True)
-            df_out.to_csv(out_path, index=False)
-            _p(f"[DONE] Wrote CSV: {out_path}  (rows={df_out.shape[0]}, cols={df_out.shape[1]})")
-        except Exception as e:
-            _p(f"[WARN] Primary write failed: {e}")
-            if FALLBACK_OUT_PATH is None:
-                _p("[FATAL] No $WORK fallback available. Aborting.")
-                return
-            out_path = FALLBACK_OUT_PATH
-            out_dir = out_path.parent
-            out_dir.mkdir(parents=True, exist_ok=True)
-            df_out.to_csv(out_path, index=False)
-            _p(f"[DONE] Wrote CSV (fallback): {out_path}  (rows={df_out.shape[0]}, cols={df_out.shape[1]})")
-
-        # 10) Missing metadata log (same filename as before, now CSV w/ both flags)
-        if miss_genomics or miss_clinical:
-            miss_path = out_path.with_suffix(".genomics_missing.txt")
-            _p(f"[INFO] Writing missing metadata log → {miss_path}")
-            all_runnos = sorted(miss_genomics | miss_clinical)
-            with open(miss_path, "w") as fh:
-                fh.write("runno,missing_genomics,missing_clinical\n")
-                for r in all_runnos:
-                    fh.write(f"{r},{int(r in miss_genomics)},{int(r in miss_clinical)}\n")
-            _p(f"[INFO] Missing counts — Genomics: {len(miss_genomics)}, Clinical: {len(miss_clinical)}")
-
-        _p("[END] Completed successfully.")
-
-    except Exception as e:
-        _p(f"[UNCAUGHT] {e}")
-        traceback.print_exc()
-        sys.exit(1)
-
-if __name__ == "__main__":
-    pd.set_option("display.width", 200)
-    pd.set_option("display.max_columns", 200)
-    main()
+        df_out = df_out[[c for c in base_order if c in df_out.columns] + rema]()
