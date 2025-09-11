@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """
-HABS Maestro metadata builder (verbose, header fix, clinical/biomarker safety + inference)
+HABS Maestro metadata builder (verbose, header fix, clinical/biomarker safety + inference + extra cleaning)
 
 - Normalizes headers (spaces -> underscores) across ALL inputs.
 - Compiles ordered runnos from connectome dirs (start- and end-patterns).
 - Extracts subject (Med_ID without 'H') + visit (0/2 from _y*).
+- Adds Year column (0 for _y0, 2 for _y2) immediately after Subject.
 - Pulls Sex/Acq_Date from ADNI_HABS_dual_2years_2_05_2025.csv using (Subject, Visit->BL/M24).
-- Loads Genomics*.csv and *both* Clinical HD 1/2/3*.csv and Biomarker HD 1/2/3*.csv (headers normalized).
+- Loads Genomics*.csv and both Clinical HD 1/2/3*.csv and Biomarker HD 1/2/3*.csv (headers normalized).
 - Selection per runno for Clinical and Biomarker:
     * visit 0 (_y0): ONLY HD1 allowed, prefer Visit_ID==1 else nearest Interview_Date to BL date.
     * visit 2 (_y2): ONLY HD2/HD3 allowed (never HD1), prefer Visit_ID==3 else nearest Interview_Date to M24 date.
-- Cleans values: strings with any whitespace -> 'CUT'; -9999 (numeric or string) -> empty.
+- Cleans values:
+    * strings with any whitespace -> 'CUT'  (dates are parsed first so unaffected)
+    * -9999 (numeric or string) -> empty (NaN)
+    * any negative repeated digit like -777777 (3+ repeats) -> empty (NaN) in BOTH string and numeric cols
 - Drops duplicate-identical and constant columns.
 - Logs missing Genomics/Clinical/Biomarker together in one CSV.
 - Writes output to /mnt/newStor/... (fallback to $WORK if needed).
@@ -224,21 +228,58 @@ def remove_constant_columns(df: pd.DataFrame) -> pd.DataFrame:
     mask = df.apply(lambda s: s.nunique(dropna=False) > 1)
     return df.loc[:, list(mask[mask].index)]
 
+def _is_negative_repeated_int_scalar(x) -> bool:
+    """True if x is a negative integer consisting of a single repeated digit, length >= 3 (e.g., -777777)."""
+    if pd.isna(x):
+        return False
+    # numeric path
+    if isinstance(x, (int, np.integer)) or (isinstance(x, (float, np.floating)) and float(x).is_integer()):
+        xi = int(x)
+        if xi >= 0:
+            return False
+        s = str(abs(xi))
+        return len(s) >= 3 and len(set(s)) == 1
+    # string path
+    if isinstance(x, str):
+        s = x.strip()
+        m = re.fullmatch(r"-\s*([0-9])\1{2,}", s)
+        return m is not None
+    return False
+
 def clean_values(df: pd.DataFrame) -> pd.DataFrame:
     """
     - Replace -9999 (numeric) and "-9999" (string) with NaN
+    - Replace any negative repeated digit like -777777 (3+ repeats) with NaN
     - Replace any string cell containing whitespace with 'CUT'
       (dates are parsed to datetime before this, so they won't be affected)
     """
     df = df.copy()
+
+    # -9999 -> NaN (numeric or string)
     df.replace(-9999, pd.NA, inplace=True)
     df.replace(to_replace=r'^\s*-9999\s*$', value=pd.NA, regex=True, inplace=True)
+
+    # Negative repeated-digit placeholders -> NaN (string/object columns)
+    for col in df.columns:
+        # strings
+        if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
+            s = df[col].astype("string")
+            mask_rep = s.str.fullmatch(r"\s*-\s*([0-9])\1{2,}\s*", na=False)
+            s = s.mask(mask_rep, pd.NA)
+            df[col] = s
+        # numeric
+        if pd.api.types.is_numeric_dtype(df[col]):
+            mask_num = df[col].apply(_is_negative_repeated_int_scalar)
+            df.loc[mask_num, col] = pd.NA
+
+    # strings-with-whitespace -> 'CUT' (preserve NaNs; dates already datetime)
     for col in df.columns:
         if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
             s = df[col].astype("string")
             has_ws = s.str.contains(r"\s", na=False)
             s = s.mask(has_ws, "CUT")
             df[col] = s
+
     return df
 
 # ---------- selection helpers ----------
@@ -248,12 +289,10 @@ def _gather_candidates_for_subject(df: pd.DataFrame, subject: str) -> pd.DataFra
     subdf = df[df["Med_ID"] == subject].copy()
     if subdf.empty:
         return subdf
-    # numeric Visit_ID helper
     if "Visit_ID" in subdf.columns:
         subdf["_Visit_ID_num"] = pd.to_numeric(subdf["Visit_ID"], errors="coerce")
     else:
         subdf["_Visit_ID_num"] = pd.NA
-    # usable date for distance
     date_col = None
     if "Interview_Date" in subdf.columns:
         date_col = "Interview_Date"
@@ -287,7 +326,6 @@ def choose_best_row(
         subdf = _gather_candidates_for_subject(df, subject)
         if subdf.empty:
             continue
-        # distance to target_date (NaT -> inf)
         if pd.isna(target_date):
             subdf["_dist"] = pd.Timedelta.max
         else:
@@ -305,7 +343,6 @@ def choose_best_row(
         r, b, _ = exact[0]
         return r, b
 
-    # no exact Visit_ID among allowed -> nearest by date among allowed
     candidates.sort(key=lambda t: t[2])
     r, b, _ = candidates[0]
     return r, b
@@ -370,7 +407,8 @@ def main():
                 if pd.isna(target_date):
                     target_date = acq_date
 
-                row = {"runno": runno_str, "Subject": subject, "Sex": sex, "Acq_Date": acq_date}
+                # Base row (add Year right after Subject later in ordering)
+                row = {"runno": runno_str, "Subject": subject, "Year": int(visit), "Sex": sex, "Acq_Date": acq_date}
 
                 # ----- Genomics
                 if not df_gen_all.empty and "Med_ID" in df_gen_all.columns:
@@ -439,10 +477,65 @@ def main():
         df_out = pd.DataFrame(rows)
 
         # 5.5) Clean values BEFORE de-dup/constant-drop
-        _p("[STEP] Cleaning values: strings with whitespace → 'CUT'; -9999 → empty")
+        _p("[STEP] Cleaning values: whitespace strings → 'CUT'; -9999 & negative repeated digits → empty")
         df_out = clean_values(df_out)
 
-        # 6) Reorder base fields first
-        base_order = ["runno", "Subject", "Sex", "Acq_Date", "Clinical_HD_Source", "Biomarker_HD_Source"]
+        # 6) Reorder base fields first (Year immediately after Subject)
+        base_order = ["runno", "Subject", "Year", "Sex", "Acq_Date", "Clinical_HD_Source", "Biomarker_HD_Source"]
         remaining = [c for c in df_out.columns if c not in base_order]
-        df_out = df_out[[c for c in base_order if c in df_out.columns] + rema]()
+        df_out = df_out[[c for c in base_order if c in df_out.columns] + remaining]
+        _p(f"[OK] Raw merged shape (post-clean): {df_out.shape}")
+
+        # 7) Deduplicate identical columns
+        before = df_out.shape[1]
+        df_out = remove_duplicate_identical_columns(df_out)
+        after_dup = df_out.shape[1]
+        _p(f"[CLEAN] Dropped {before - after_dup} duplicate-identical columns")
+
+        # 8) Drop constant columns
+        before2 = df_out.shape[1]
+        df_out = remove_constant_columns(df_out)
+        after_const = df_out.shape[1]
+        _p(f"[CLEAN] Dropped {before2 - after_const} constant columns")
+        _p(f"[OK] Final shape: {df_out.shape}")
+
+        # 9) Write CSV
+        out_path = PRIMARY_OUT_PATH
+        out_dir = out_path.parent
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            df_out.to_csv(out_path, index=False)
+            _p(f"[DONE] Wrote CSV: {out_path}  (rows={df_out.shape[0]}, cols={df_out.shape[1]})")
+        except Exception as e:
+            _p(f"[WARN] Primary write failed: {e}")
+            if FALLBACK_OUT_PATH is None:
+                _p("[FATAL] No $WORK fallback available. Aborting.")
+                return
+            out_path = FALLBACK_OUT_PATH
+            out_dir = out_path.parent
+            out_dir.mkdir(parents=True, exist_ok=True)
+            df_out.to_csv(out_path, index=False)
+            _p(f"[DONE] Wrote CSV (fallback): {out_path}  (rows={df_out.shape[0]}, cols={df_out.shape[1]})")
+
+        # 10) Missing metadata log (genomics + clinical + biomarker)
+        if miss_genomics or miss_clinical or miss_biomarker:
+            miss_path = out_path.with_suffix(".genomics_missing.txt")  # keep same filename per prior convention
+            _p(f"[INFO] Writing missing metadata log → {miss_path}")
+            all_runnos = sorted(miss_genomics | miss_clinical | miss_biomarker)
+            with open(miss_path, "w") as fh:
+                fh.write("runno,missing_genomics,missing_clinical,missing_biomarker\n")
+                for r in all_runnos:
+                    fh.write(f"{r},{int(r in miss_genomics)},{int(r in miss_clinical)},{int(r in miss_biomarker)}\n")
+            _p(f"[INFO] Missing counts — Genomics: {len(miss_genomics)}, Clinical: {len(miss_clinical)}, Biomarker: {len(miss_biomarker)}")
+
+        _p("[END] Completed successfully.")
+
+    except Exception as e:
+        _p(f"[UNCAUGHT] {e}")
+        traceback.print_exc()
+        sys.exit(1)
+
+if __name__ == "__main__":
+    pd.set_option("display.width", 200)
+    pd.set_option("display.max_columns", 200)
+    main()
