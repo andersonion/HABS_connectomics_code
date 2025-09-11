@@ -173,4 +173,186 @@ def build_lookup_on_med_id(df: pd.DataFrame) -> pd.DataFrame:
         log.warning("Expected Med_ID column not found in dataframe with columns: %s", list(df.columns))
         return df
     out = df.copy()
-    out
+    out["Med_ID"] = out["Med_ID"].astype(str).str.strip()
+    return out
+
+
+def drop_column(df: pd.DataFrame, name: str) -> pd.DataFrame:
+    if name in df.columns:
+        return df.drop(columns=[name])
+    return df
+
+
+def merge_row_for_runno(runno: str,
+                        df_dual: pd.DataFrame,
+                        df_genomics_all: pd.DataFrame,
+                        df_clin1_all: pd.DataFrame,
+                        df_clin3_all: pd.DataFrame,
+                        genomics_miss_log: List[str]) -> pd.Series:
+    """Build a single row Series for one runno."""
+    runno_str, subject, visit = subject_visit_from_runno(runno)
+    visit_code = map_visit_code(visit)
+
+    row = {"runno": runno_str, "Subject": subject}
+
+    # First CSV: pull Sex, Acq_Date using (Subject, Visit)
+    sel = df_dual[(df_dual["Subject"] == subject) & (df_dual["Visit"] == visit_code)]
+    if sel.empty:
+        log.warning("No match in first CSV for Subject=%s, Visit=%s (runno=%s)", subject, visit_code, runno_str)
+        sex = pd.NA
+        acq = pd.NA
+    else:
+        # If multiple, take first
+        sex = sel.iloc[0].get("Sex", pd.NA)
+        acq = sel.iloc[0].get("Acq_Date", pd.NA)
+    row["Sex"] = sex
+    row["Acq_Date"] = acq
+
+    # Genomics: merge all fields (except Age) on Med_ID == subject
+    gen_row = df_genomics_all[df_genomics_all.get("Med_ID", pd.Series([], dtype=object)) == subject]
+    if gen_row.empty:
+        genomics_miss_log.append(runno_str)
+        genomics_values = {}
+    else:
+        gr = gen_row.iloc[0].drop(labels=[c for c in ["Age"] if c in gen_row.columns], errors="ignore")
+        genomics_values = gr.to_dict()
+
+    # Clinical: choose dataset by visit and merge on Med_ID
+    clin_df = df_clin1_all if visit == "0" else df_clin3_all
+    clin_row = clin_df[clin_df.get("Med_ID", pd.Series([], dtype=object)) == subject]
+    clinical_values = {} if clin_row.empty else clin_row.iloc[0].to_dict()
+
+    # Compose final row
+    for k, v in genomics_values.items():
+        if k not in row:
+            row[k] = v
+    for k, v in clinical_values.items():
+        if k not in row:
+            row[k] = v
+
+    return pd.Series(row)
+
+
+def remove_duplicate_identical_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Drop columns with identical values across all rows (true duplicates).
+    Keep the first occurrence encountered.
+    """
+    keep_cols = []
+    seen = []
+    for col in df.columns:
+        ser = df[col]
+        signature = tuple((pd.isna(x), None if pd.isna(x) else x) for x in ser)
+        if signature in seen:
+            continue
+        seen.append(signature)
+        keep_cols.append(col)
+    return df.loc[:, keep_cols]
+
+
+def remove_constant_columns(df: pd.DataFrame) -> pd.DataFrame:
+    mask = df.apply(lambda s: s.nunique(dropna=False) > 1)
+    return df.loc[:, list(mask[mask].index)]
+
+
+def main():
+    # 1) Compile ordered runnos
+    runnos = compile_ordered_runnos(
+        dirs_start=[DWI_DIR],
+        dirs_end=[FMRI_DIR],
+    )
+    if not runnos:
+        log.error("No runnos found. Check your directories.")
+        return
+
+    # 2) Load first CSV
+    df_dual_raw = load_first_csv_table(HABS_DUAL_FILE)
+    df_dual = build_lookup_dual(df_dual_raw)
+
+    # 3) Load Genomics (concat all Genomics*.csv)
+    genomics_glob = str(METADATA_DIR / "Genomics*.csv")
+    df_gen_all = safe_concat_csvs(genomics_glob)
+    if df_gen_all.empty:
+        log.warning("No Genomics*.csv files found under %s", METADATA_DIR)
+    df_gen_all = build_lookup_on_med_id(df_gen_all)
+    # Exclude Age field from genomics dataset itself (not from output base fields)
+    if not df_gen_all.empty and "Age" in df_gen_all.columns:
+        df_gen_all = df_gen_all.drop(columns=["Age"])
+
+    # 4) Load Clinical (visit 0 -> 'Clinical HD 1'*.csv, visit 2 -> 'Clinical HD 3'*.csv)
+    clin1_glob = str(METADATA_DIR / "Clinical HD 1*.csv")
+    clin3_glob = str(METADATA_DIR / "Clinical HD 3*.csv")
+    df_clin1_all = build_lookup_on_med_id(safe_concat_csvs(clin1_glob))
+    df_clin3_all = build_lookup_on_med_id(safe_concat_csvs(clin3_glob))
+    if df_clin1_all.empty:
+        log.warning("No Clinical HD 1*.csv files found")
+    if df_clin3_all.empty:
+        log.warning("No Clinical HD 3*.csv files found")
+
+    # 5) Build rows
+    genomics_miss_log: List[str] = []
+    rows = []
+    for r in runnos:
+        try:
+            row = merge_row_for_runno(
+                r, df_dual, df_gen_all, df_clin1_all, df_clin3_all, genomics_miss_log
+            )
+            rows.append(row)
+        except Exception as e:
+            log.error("Failed processing runno %s: %s", r, e)
+
+    if not rows:
+        log.error("No rows produced; aborting.")
+        return
+
+    df_out = pd.DataFrame(rows)
+
+    # 6) Reorder: ensure base fields first if present
+    base_order = ["runno", "Subject", "Sex", "Acq_Date"]
+    remaining = [c for c in df_out.columns if c not in base_order]
+    df_out = df_out[[c for c in base_order if c in df_out.columns] + remaining]
+
+    # 7) Remove duplicate-identical columns
+    before = df_out.shape[1]
+    df_out = remove_duplicate_identical_columns(df_out)
+    after_dupdrop = df_out.shape[1]
+    log.info("Dropped %d duplicate-identical columns", before - after_dupdrop)
+
+    # 8) Remove constant columns
+    before2 = df_out.shape[1]
+    df_out = remove_constant_columns(df_out)
+    after_constdrop = df_out.shape[1]
+    log.info("Dropped %d constant columns", before2 - after_constdrop)
+
+    # 9) Write CSV (primary, then fallback to $WORK)
+    out_path = PRIMARY_OUT_PATH
+    out_dir = out_path.parent
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        df_out.to_csv(out_path, index=False)
+        log.info("Wrote %s (%d rows, %d cols)", out_path, df_out.shape[0], df_out.shape[1])
+    except Exception as e:
+        log.warning("Primary write failed: %s", e)
+        if FALLBACK_OUT_PATH is None:
+            log.error("No $WORK fallback available. Aborting.")
+            return
+        out_path = FALLBACK_OUT_PATH
+        out_dir = out_path.parent
+        out_dir.mkdir(parents=True, exist_ok=True)
+        df_out.to_csv(out_path, index=False)
+        log.info("Wrote (fallback) %s (%d rows, %d cols)", out_path, df_out.shape[0], df_out.shape[1])
+
+    # 10) Report missing genomics
+    if genomics_miss_log:
+        log.warning("Genomics metadata missing for %d runnos", len(genomics_miss_log))
+        miss_path = out_path.with_suffix(".genomics_missing.txt")
+        with open(miss_path, "w") as fh:
+            for r in genomics_miss_log:
+                fh.write(r + "\n")
+        log.info("Wrote genomics-missing log: %s", miss_path)
+
+
+if __name__ == "__main__":
+    pd.set_option("display.width", 200)
+    pd.set_option("display.max_columns", 200)
+    main()
