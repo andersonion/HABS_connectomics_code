@@ -116,4 +116,10 @@ def subject_visit_from_runno(runno: str) -> Tuple[str, str, str]:
 
 def map_visit_code(visit: str) -> str:
     """Map visit '0'->'BL', '2'->'M24'."""
-    return "BL" if visit == "0" els
+    v = str(visit).strip()
+    if v == "0":
+        return "BL"
+    elif v == "2":
+        return "M24"
+    else:
+        raise ValueError(f"Unexpected visit code: {visit!r}")
