@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
 """
-HABS Maestro metadata builder (verbose, header fix, clinical/biomarker safety + inference + extra cleaning)
+HABS Maestro metadata builder (verbose, header fix, clinical/biomarker safety + inference + detailed cleaning report)
 
 - Normalizes headers (spaces -> underscores) across ALL inputs.
 - Compiles ordered runnos from connectome dirs (start- and end-patterns).
-- Extracts subject (Med_ID without 'H') + visit (0/2 from _y*).
-- Adds Year column (0 for _y0, 2 for _y2) immediately after Subject.
+- Extracts subject (Med_ID without 'H') + visit (0/2 from _y*); adds Year (0 or 2) immediately after Subject.
 - Pulls Sex/Acq_Date from ADNI_HABS_dual_2years_2_05_2025.csv using (Subject, Visit->BL/M24).
-- Loads Genomics*.csv and both Clinical HD 1/2/3*.csv and Biomarker HD 1/2/3*.csv (headers normalized).
-- Selection per runno for Clinical and Biomarker:
-    * visit 0 (_y0): ONLY HD1 allowed, prefer Visit_ID==1 else nearest Interview_Date to BL date.
-    * visit 2 (_y2): ONLY HD2/HD3 allowed (never HD1), prefer Visit_ID==3 else nearest Interview_Date to M24 date.
-- Cleans values:
-    * strings with any whitespace -> 'CUT'  (dates are parsed first so unaffected)
+- Loads Genomics*.csv and Clinical/Biomarker HD 1/2/3*.csv (headers normalized).
+- Clinical & Biomarker selection:
+    * visit 0 (_y0): ONLY HD1 allowed; prefer Visit_ID==1, else nearest Interview_Date to BL.
+    * visit 2 (_y2): ONLY HD2/HD3 allowed; prefer Visit_ID==3, else nearest Interview_Date to M24.
+- Cleans values (and REPORTS counts per column):
     * -9999 (numeric or string) -> empty (NaN)
-    * any negative repeated digit like -777777 (3+ repeats) -> empty (NaN) in BOTH string and numeric cols
+    * negative repeated-digit placeholders (e.g., -777777) -> empty (NaN)
+    * any string cell containing whitespace -> 'CUT'  (dates parsed first so unaffected)
 - Drops duplicate-identical and constant columns.
 - Logs missing Genomics/Clinical/Biomarker together in one CSV.
 - Writes output to /mnt/newStor/... (fallback to $WORK if needed).
@@ -78,13 +77,13 @@ def parse_date_cols(df: pd.DataFrame, prefer_cols: Optional[List[str]] = None) -
     if prefer_cols:
         for c in prefer_cols:
             if c in df.columns:
-                df[c] = pd.to_datetime(df[c], errors="coerce", infer_datetime_format=True)
+                df[c] = pd.to_datetime(df[c], errors="coerce")
                 tried.add(c)
     for c in df.columns:
-        if c in tried: 
+        if c in tried:
             continue
         if "date" in c.lower():
-            df[c] = pd.to_datetime(df[c], errors="coerce", infer_datetime_format=True)
+            df[c] = pd.to_datetime(df[c], errors="coerce")
     return df
 
 def read_table(path: Path) -> pd.DataFrame:
@@ -242,45 +241,82 @@ def _is_negative_repeated_int_scalar(x) -> bool:
     # string path
     if isinstance(x, str):
         s = x.strip()
-        m = re.fullmatch(r"-\s*([0-9])\1{2,}", s)
-        return m is not None
+        return re.fullmatch(r"-\s*([0-9])\1{2,}", s) is not None
     return False
 
-def clean_values(df: pd.DataFrame) -> pd.DataFrame:
+def clean_values(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Dict[str, int]]]:
     """
-    - Replace -9999 (numeric) and "-9999" (string) with NaN
-    - Replace any negative repeated digit like -777777 (3+ repeats) with NaN
-    - Replace any string cell containing whitespace with 'CUT'
-      (dates are parsed to datetime before this, so they won't be affected)
+    - Replace -9999 (numeric and string) -> NaN
+    - Replace negative repeated-digit placeholders like -777777 -> NaN (numeric and string)
+    - Replace any string cell containing whitespace -> 'CUT'
+    Returns (cleaned_df, stats_by_category_by_column)
     """
     df = df.copy()
+    stats = {"minus9999": {}, "neg_repeated": {}, "space_strings": {}}
 
-    # -9999 -> NaN (numeric or string)
-    df.replace(-9999, pd.NA, inplace=True)
-    df.replace(to_replace=r'^\s*-9999\s*$', value=pd.NA, regex=True, inplace=True)
+    # Pass 1: -9999 -> NaN (numeric)
+    for col in df.select_dtypes(include=[np.number]).columns:
+        mask = df[col] == -9999
+        cnt = int(mask.sum())
+        if cnt:
+            df.loc[mask, col] = pd.NA
+            stats["minus9999"][col] = stats["minus9999"].get(col, 0) + cnt
 
-    # Negative repeated-digit placeholders -> NaN (string/object columns)
-    for col in df.columns:
-        # strings
-        if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
-            s = df[col].astype("string")
-            mask_rep = s.str.fullmatch(r"\s*-\s*([0-9])\1{2,}\s*", na=False)
-            s = s.mask(mask_rep, pd.NA)
-            df[col] = s
-        # numeric
-        if pd.api.types.is_numeric_dtype(df[col]):
-            mask_num = df[col].apply(_is_negative_repeated_int_scalar)
-            df.loc[mask_num, col] = pd.NA
-
-    # strings-with-whitespace -> 'CUT' (preserve NaNs; dates already datetime)
+    # Pass 1b: -9999 -> NaN (string/object)
     for col in df.columns:
         if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
             s = df[col].astype("string")
-            has_ws = s.str.contains(r"\s", na=False)
-            s = s.mask(has_ws, "CUT")
-            df[col] = s
+            mask = s.str.fullmatch(r"\s*-9999\s*", na=False)
+            cnt = int(mask.sum())
+            if cnt:
+                s = s.mask(mask, pd.NA)
+                df[col] = s
+                stats["minus9999"][col] = stats["minus9999"].get(col, 0) + cnt
 
-    return df
+    # Pass 2: negative repeated-digit placeholders -> NaN (string/object)
+    for col in df.columns:
+        if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
+            s = df[col].astype("string")
+            mask = s.str.fullmatch(r"\s*-\s*([0-9])\1{2,}\s*", na=False)
+            cnt = int(mask.sum())
+            if cnt:
+                s = s.mask(mask, pd.NA)
+                df[col] = s
+                stats["neg_repeated"][col] = stats["neg_repeated"].get(col, 0) + cnt
+
+    # Pass 2b: negative repeated-digit placeholders -> NaN (numeric)
+    for col in df.select_dtypes(include=[np.number]).columns:
+        mask = df[col].apply(_is_negative_repeated_int_scalar)
+        cnt = int(mask.sum())
+        if cnt:
+            df.loc[mask, col] = pd.NA
+            stats["neg_repeated"][col] = stats["neg_repeated"].get(col, 0) + cnt
+
+    # Pass 3: strings containing whitespace -> 'CUT' (preserve NaNs)
+    for col in df.columns:
+        if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
+            s = df[col].astype("string")
+            mask = s.str.contains(r"\s", na=False)
+            cnt = int(mask.sum())
+            if cnt:
+                s = s.mask(mask, "CUT")
+                df[col] = s
+                stats["space_strings"][col] = stats["space_strings"].get(col, 0) + cnt
+
+    return df, stats
+
+def print_cleaning_summary(stats: Dict[str, Dict[str, int]], title: str):
+    def _top(d: Dict[str, int], k=10):
+        return sorted(d.items(), key=lambda kv: kv[1], reverse=True)[:k]
+
+    _p(f"[CLEAN-SUMMARY] {title}")
+    for cat in ("minus9999", "neg_repeated", "space_strings"):
+        colmap = stats.get(cat, {})
+        total = sum(colmap.values())
+        _p(f"  - {cat}: total replaced = {total}")
+        if total:
+            for col, cnt in _top(colmap):
+                _p(f"      • {col}: {cnt}")
 
 # ---------- selection helpers ----------
 def _gather_candidates_for_subject(df: pd.DataFrame, subject: str) -> pd.DataFrame:
@@ -302,7 +338,7 @@ def _gather_candidates_for_subject(df: pd.DataFrame, subject: str) -> pd.DataFra
                 date_col = c; break
     if date_col:
         subdf["_date_col"] = date_col
-        subdf["_dt"] = pd.to_datetime(subdf[date_col], errors="coerce", infer_datetime_format=True)
+        subdf["_dt"] = pd.to_datetime(subdf[date_col], errors="coerce")
     else:
         subdf["_date_col"] = pd.NA
         subdf["_dt"] = pd.NaT
@@ -407,7 +443,7 @@ def main():
                 if pd.isna(target_date):
                     target_date = acq_date
 
-                # Base row (add Year right after Subject later in ordering)
+                # Base row (Year immediately after Subject)
                 row = {"runno": runno_str, "Subject": subject, "Year": int(visit), "Sex": sex, "Acq_Date": acq_date}
 
                 # ----- Genomics
@@ -476,9 +512,10 @@ def main():
 
         df_out = pd.DataFrame(rows)
 
-        # 5.5) Clean values BEFORE de-dup/constant-drop
+        # 5.5) Clean values BEFORE de-dup/constant-drop (and show summary)
         _p("[STEP] Cleaning values: whitespace strings → 'CUT'; -9999 & negative repeated digits → empty")
-        df_out = clean_values(df_out)
+        df_out, clean_stats = clean_values(df_out)
+        print_cleaning_summary(clean_stats, "Per-column replacements")
 
         # 6) Reorder base fields first (Year immediately after Subject)
         base_order = ["runno", "Subject", "Year", "Sex", "Acq_Date", "Clinical_HD_Source", "Biomarker_HD_Source"]
