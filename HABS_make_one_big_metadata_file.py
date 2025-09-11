@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 """
-HABS Maestro metadata builder (verbose)
+HABS Maestro metadata builder (verbose, with extra cleaning)
 
-- Compiles ordered runnos from connectome dirs
-- Extracts subject (Med_ID without leading 'H') + visit (0/2 from _y*)
-- Pulls Sex/Acq_Date from ADNI_HABS_dual_2years_2_05_2025.csv using (Subject, Visit->BL/M24)
-- Merges Genomics*.csv on Med_ID (excluding 'Age'); logs no-matches
-- Merges Clinical HD 1*.csv (visit 0) or Clinical HD 3*.csv (visit 2) on Med_ID
-- Drops duplicate-identical columns and constant columns
-- Writes CSV to /mnt/newStor/...; if that path isn’t writable/doesn’t exist, retries with $WORK
+Tweaks:
+- Log BOTH missing Genomics and missing Clinical to the SAME file.
+- Replace any string cell that contains spaces with 'CUT'.
+- Replace -9999 (numeric or string) with empty (NaN).
 """
 
 from __future__ import annotations
@@ -19,7 +16,7 @@ import sys
 import traceback
 import logging
 from pathlib import Path
-from typing import Iterable, List, Tuple
+from typing import Iterable, List, Tuple, Dict, Set
 
 import pandas as pd
 
@@ -177,7 +174,8 @@ def merge_row_for_runno(runno: str,
                         df_genomics_all: pd.DataFrame,
                         df_clin1_all: pd.DataFrame,
                         df_clin3_all: pd.DataFrame,
-                        genomics_miss_log: List[str]) -> pd.Series:
+                        miss_genomics: Set[str],
+                        miss_clinical: Set[str]) -> pd.Series:
     runno_str, subject, visit = subject_visit_from_runno(runno)
     visit_code = map_visit_code(visit)
 
@@ -195,30 +193,32 @@ def merge_row_for_runno(runno: str,
     row["Acq_Date"] = acq
 
     # Genomics (exclude Age)
-    genomics_values = {}
     if not df_genomics_all.empty and "Med_ID" in df_genomics_all.columns:
         gen_row = df_genomics_all[df_genomics_all["Med_ID"] == subject]
         if gen_row.empty:
-            genomics_miss_log.append(runno_str)
+            miss_genomics.add(runno_str)
         else:
             gr = gen_row.iloc[0].drop(labels=[c for c in ["Age"] if c in gen_row.columns], errors="ignore")
-            genomics_values = gr.to_dict()
+            for k, v in gr.to_dict().items():
+                if k not in row:
+                    row[k] = v
+    else:
+        # If dataset missing entirely, count all as missing genomics
+        miss_genomics.add(runno_str)
 
     # Clinical (by visit)
     clin_df = df_clin1_all if visit == "0" else df_clin3_all
-    clinical_values = {}
     if not clin_df.empty and "Med_ID" in clin_df.columns:
         clin_row = clin_df[clin_df["Med_ID"] == subject]
-        if not clin_row.empty:
-            clinical_values = clin_row.iloc[0].to_dict()
-
-    # Compose final row (avoid overwriting base fields)
-    for k, v in genomics_values.items():
-        if k not in row:
-            row[k] = v
-    for k, v in clinical_values.items():
-        if k not in row:
-            row[k] = v
+        if clin_row.empty:
+            miss_clinical.add(runno_str)
+        else:
+            for k, v in clin_row.iloc[0].to_dict().items():
+                if k not in row:
+                    row[k] = v
+    else:
+        # If the selected clinical dataset is empty, count as missing
+        miss_clinical.add(runno_str)
 
     return pd.Series(row)
 
@@ -238,6 +238,28 @@ def remove_duplicate_identical_columns(df: pd.DataFrame) -> pd.DataFrame:
 def remove_constant_columns(df: pd.DataFrame) -> pd.DataFrame:
     mask = df.apply(lambda s: s.nunique(dropna=False) > 1)
     return df.loc[:, list(mask[mask].index)]
+
+
+def clean_values(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    - Replace any string cell containing one or more whitespace characters with 'CUT'
+    - Replace numeric -9999 and string '-9999' with NaN
+    """
+    df = df.copy()
+
+    # Replace -9999 (numeric) and "-9999" (string) with NaN
+    df.replace(-9999, pd.NA, inplace=True)
+    df.replace(to_replace=r'^\s*-9999\s*$', value=pd.NA, regex=True, inplace=True)
+
+    # For string-like columns, replace any value containing whitespace with 'CUT'
+    for col in df.columns:
+        if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
+            s = df[col].astype("string")  # preserves NaN as <NA>
+            has_space = s.str.contains(r"\s", na=False)
+            # Only replace those with whitespace; leave NaNs alone
+            s = s.mask(has_space, "CUT")
+            df[col] = s
+    return df
 
 
 def main():
@@ -266,16 +288,20 @@ def main():
         df_clin1_all = build_lookup_on_med_id(df_clin1_all, "Clinical HD 1")
         df_clin3_all = build_lookup_on_med_id(df_clin3_all, "Clinical HD 3")
 
-        # 5) Build rows
+        # 5) Build rows + track missing
         _p("[STEP] Building merged rows…")
-        genomics_miss_log: List[str] = []
+        miss_genomics: Set[str] = set()
+        miss_clinical: Set[str] = set()
         rows = []
         for i, r in enumerate(runnos, 1):
             if i % 50 == 1 or i == len(runnos):
                 _p(f"  • Processing {i}/{len(runnos)}: {r}")
             try:
                 rows.append(
-                    merge_row_for_runno(r, df_dual, df_gen_all, df_clin1_all, df_clin3_all, genomics_miss_log)
+                    merge_row_for_runno(
+                        r, df_dual, df_gen_all, df_clin1_all, df_clin3_all,
+                        miss_genomics, miss_clinical
+                    )
                 )
             except Exception as e:
                 _p(f"[ERROR] runno={r}: {e}")
@@ -287,11 +313,15 @@ def main():
 
         df_out = pd.DataFrame(rows)
 
+        # 5.5) Clean values BEFORE de-dup/constant-drop
+        _p("[STEP] Cleaning values: spacey strings → 'CUT'; -9999 → empty")
+        df_out = clean_values(df_out)
+
         # 6) Reorder
         base_order = ["runno", "Subject", "Sex", "Acq_Date"]
         remaining = [c for c in df_out.columns if c not in base_order]
         df_out = df_out[[c for c in base_order if c in df_out.columns] + remaining]
-        _p(f"[OK] Raw merged shape: {df_out.shape}")
+        _p(f"[OK] Raw merged shape (post-clean): {df_out.shape}")
 
         # 7) Drop duplicate-identical columns
         before = df_out.shape[1]
@@ -324,13 +354,16 @@ def main():
             df_out.to_csv(out_path, index=False)
             _p(f"[DONE] Wrote CSV (fallback): {out_path}  (rows={df_out.shape[0]}, cols={df_out.shape[1]})")
 
-        # 10) Genomics-missing log
-        if genomics_miss_log:
+        # 10) Missing metadata log (both genomics & clinical) to the SAME file as before
+        if miss_genomics or miss_clinical:
             miss_path = out_path.with_suffix(".genomics_missing.txt")
+            _p(f"[INFO] Writing missing metadata log → {miss_path}")
+            all_runnos = sorted(miss_genomics | miss_clinical)
             with open(miss_path, "w") as fh:
-                for r in genomics_miss_log:
-                    fh.write(r + "\n")
-            _p(f"[INFO] Genomics metadata missing for {len(genomics_miss_log)} runnos → {miss_path}")
+                fh.write("runno,missing_genomics,missing_clinical\n")
+                for r in all_runnos:
+                    fh.write(f"{r},{int(r in miss_genomics)},{int(r in miss_clinical)}\n")
+            _p(f"[INFO] Missing counts — Genomics: {len(miss_genomics)}, Clinical: {len(miss_clinical)}")
 
         _p("[END] Completed successfully.")
 
