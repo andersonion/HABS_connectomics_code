@@ -26,8 +26,10 @@ import pandas as pd
 # ----------------------------
 DWI_DIR = Path("/mnt/newStor/paros/paros_WORK//harmonization/HABS/connectomes/DWI/plain/")
 FMRI_DIR = Path("/mnt/newStor/paros/paros_WORK//harmonization/HABS/connectomes/fMRI/")
-#METADATA_DIR = Path("/mnt/newStor/paros/paros_WORK//harmonization/HABS/metadata/")  # where CSVs live
-METADATA_DIR = Path("/mnt/newStor/paros/paros_WORK/ADNI_HABS_request-545/")  # where CSVs live
+
+# UPDATED per your note:
+METADATA_DIR = Path("/mnt/newStor/paros/paros_WORK/ADNI_HABS_request-545/")
+
 HABS_DUAL_FILE = METADATA_DIR / "ADNI_HABS_dual_2years_2_05_2025.csv"  # first CSV
 
 # Output (primary, then fallback using $WORK if needed)
@@ -123,3 +125,52 @@ def map_visit_code(visit: str) -> str:
         return "M24"
     else:
         raise ValueError(f"Unexpected visit code: {visit!r}")
+
+
+def load_first_csv_table(path: Path) -> pd.DataFrame:
+    df = read_table(path)
+    # Normalize expected columns
+    required_cols = {"Subject", "Visit", "Sex", "Acq_Date"}
+    missing = required_cols - set(df.columns)
+    if missing:
+        log.warning("First CSV missing expected columns: %s", ", ".join(sorted(missing)))
+    # String-normalize key columns
+    for c in ["Subject", "Visit"]:
+        if c in df.columns:
+            df[c] = df[c].astype(str).strip()
+    return df
+
+
+def safe_concat_csvs(pattern: str) -> pd.DataFrame:
+    """Concat all CSVs matching pattern (glob) into one DataFrame; empty if none."""
+    paths = glob.glob(pattern)
+    frames = []
+    for p in paths:
+        try:
+            frames.append(pd.read_csv(p))
+        except Exception as e:
+            log.warning("Failed to read %s: %s", p, e)
+    if frames:
+        return pd.concat(frames, ignore_index=True)
+    return pd.DataFrame()
+
+
+def build_lookup_dual(df_dual: pd.DataFrame) -> pd.DataFrame:
+    """Key for lookups: ('Subject', 'Visit')."""
+    df = df_dual.copy()
+    if "Subject" in df.columns:
+        df["Subject"] = df["Subject"].astype(str).str.strip()
+    if "Visit" in df.columns:
+        df["Visit"] = df["Visit"].astype(str).str.strip()
+    return df
+
+
+def build_lookup_on_med_id(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize Med_ID column to string trimmed."""
+    if df.empty:
+        return df
+    if "Med_ID" not in df.columns:
+        log.warning("Expected Med_ID column not found in dataframe with columns: %s", list(df.columns))
+        return df
+    out = df.copy()
+    out
