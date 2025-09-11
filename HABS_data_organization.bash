@@ -516,7 +516,7 @@ pool=${parent}${study}_symlink_pool
 runno_list='';
 for runno in $(ls -d diffusion_prep_MRtrix_${runno_prefix_letter}*/ | cut -d 'x' -f2);do
 	runno=${runno/\//};runno=${runno#_};
-	for contrast in dwi fa mask;do
+	for contrast in dwi fa mask adc ad b0 rd;do
 		file=${parent}diffusion_prep_MRtrix_${runno}/${runno}_${contrast}.nii.gz;
 		link=${pool}/${runno}_${contrast}.nii.gz;
 		if [[ ! -e $link && -f $file ]];then
