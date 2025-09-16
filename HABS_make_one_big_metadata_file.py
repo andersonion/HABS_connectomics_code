@@ -2,23 +2,13 @@
 """
 HABS Maestro metadata builder (verbose, header fix, clinical/biomarker safety + inference + detailed cleaning report)
 
-- Normalizes headers (spaces -> underscores) across ALL inputs.
-- Compiles ordered runnos from connectome dirs (start- and end-patterns).
-- Extracts subject (Med_ID without 'H') + visit (0/2 from _y*); adds Year (0 or 2) immediately after Subject.
-- Pulls Sex/Acq_Date from ADNI_HABS_dual_2years_2_05_2025.csv using (Subject, Visit->BL/M24).
-- Loads Genomics*.csv and Clinical/Biomarker HD 1/2/3*.csv (headers normalized).
-- Clinical & Biomarker selection:
-    * visit 0 (_y0): ONLY HD1 allowed; prefer Visit_ID==1, else nearest Interview_Date to BL.
-    * visit 2 (_y2): ONLY HD2/HD3 allowed; prefer Visit_ID==3, else nearest Interview_Date to M24.
-- Cleans values (and REPORTS counts per column):
-    * -9999 (numeric or string) -> empty (NaN)
-    * negative repeated-digit placeholders (e.g., -777777) -> empty (NaN)
-    * any string cell containing whitespace -> 'CUT'  (dates parsed first so unaffected)
-- Drops duplicate-identical and constant columns.
-- Logs missing Genomics/Clinical/Biomarker together in one CSV.
-- Writes output to /mnt/newStor/... (fallback to $WORK if needed).
+Modifications (2025-09-16):
+ - Adds DWI and fMRI columns: populated with runno string if a corresponding file exists.
+ - Loads /mnt/newStor/paros/paros_WORK//harmonization/HABS/metadata/HABS_metadata_AB_enriched_v2.csv and merges the fields:
+     BAG_AB, cBAG_AB, PredictedAge_AB, PredictedAge_corrected_AB, Delta_BAG_AB, Delta_cBAG_AB
+   Matching is attempted robustly using runno / Med_ID + Visit mapping / runno parsing.
+ - Before writing, drops any column with <10% non-empty values (protects core base fields) and logs removal.
 """
-
 from __future__ import annotations
 import os
 import re
@@ -41,6 +31,13 @@ FMRI_DIR = Path("/mnt/newStor/paros/paros_WORK//harmonization/HABS/connectomes/f
 # Metadata folder (your corrected path)
 METADATA_DIR = Path("/mnt/newStor/paros/paros_WORK/ADNI_HABS_request-545/")
 HABS_DUAL_FILE = METADATA_DIR / "ADNI_HABS_dual_2years_2_05_2025.csv"  # first CSV
+
+# AB-enriched file (fields to import below)
+HABS_AB_FILE = Path("/mnt/newStor/paros/paros_WORK//harmonization/HABS/metadata/HABS_metadata_AB_enriched_v2.csv")
+AB_FIELDS_WANTED = [
+    "BAG_AB", "cBAG_AB", "PredictedAge_AB",
+    "PredictedAge_corrected_AB", "Delta_BAG_AB", "Delta_cBAG_AB"
+]
 
 # Output (primary, then fallback using $WORK if needed)
 PRIMARY_OUT_PATH = Path("/mnt/newStor/paros/paros_WORK//harmonization/HABS/metadata/HABS_maestro_metadata.csv")
@@ -106,7 +103,7 @@ def list_runnos_from_dir_start(dirpath: Path) -> List[str]:
 
 def list_runnos_from_dir_end(dirpath: Path) -> List[str]:
     runnos = set()
-    for p in dirpath.glob("**/*.csv"):
+    for p in dirpath.glob("**/*"):
         if p.is_file():
             m = RUNNO_AT_END_PATTERN.search(p.name)
             if m:
@@ -383,6 +380,94 @@ def choose_best_row(
     r, b, _ = candidates[0]
     return r, b
 
+# ---------- AB-enriched helper ----------
+def prepare_ab_lookup(path: Path) -> pd.DataFrame:
+    """
+    Load the AB-enriched CSV and attempt to produce columns: Subject (no leading H) and Year (0 or 2).
+    Returns df with those columns + the requested AB_FIELDS_WANTED (only those present).
+    """
+    if not path.exists():
+        _p(f"[WARN] AB-enriched file not found: {path}")
+        return pd.DataFrame()
+
+    try:
+        df = read_table(path)
+    except Exception as e:
+        _p(f"[WARN] Failed to read AB file: {e}")
+        return pd.DataFrame()
+
+    # Try to get Subject / Year
+    df = df.copy()
+    cols = {c.lower(): c for c in df.columns}
+
+    if "med_id" in cols:
+        df["Subject"] = df[cols["med_id"]].astype(str).str.strip()
+    # If runno-like column exists, parse it for Subject + Year
+    runno_col = None
+    for cand in ("runno", "run_no", "runnos", "id"):
+        if cand in cols:
+            runno_col = cols[cand]; break
+    if runno_col and "Subject" not in df.columns:
+        # try parse runno strings to subject & year
+        subj_list = []
+        year_list = []
+        for val in df[runno_col].astype(str).fillna(""):
+            m = RUNNO_PATTERN.match(val)
+            if m:
+                subj_list.append(m.group(1)[1:])  # strip leading H
+                year_list.append(int(m.group(2)))
+            else:
+                subj_list.append("")
+                year_list.append(np.nan)
+        df["Subject"] = pd.Series(subj_list)
+        df["Year"] = pd.Series(year_list)
+
+    # If we have Visit or Visit_ID columns, map them to Year if Year not already present
+    if "Year" not in df.columns:
+        if "visit" in cols:
+            # map BL->0, M24->2
+            def visit_to_year(v):
+                vstr = str(v).strip().upper()
+                if vstr in ("BL", "BASELINE", "0", "Y0"):
+                    return 0
+                if vstr in ("M24", "24", "2", "Y2"):
+                    return 2
+                try:
+                    ni = int(vstr)
+                    # try mapping visit_id 1->0, 3->2
+                    if ni == 1:
+                        return 0
+                    if ni == 3:
+                        return 2
+                except Exception:
+                    pass
+                return np.nan
+            df["Year"] = df[cols["visit"]].apply(visit_to_year)
+        elif "visit_id" in cols:
+            df["Year"] = pd.to_numeric(df[cols["visit_id"]], errors="coerce").map({1:0, 3:2})
+
+    # If we have Med_ID but Year missing, try to infer Year from any 'year'/'visit'/'visit_id' columns
+    if "Subject" not in df.columns and "med_id" in cols:
+        df["Subject"] = df[cols["med_id"]].astype(str).str.strip()
+
+    # Ensure Subject has no leading H
+    if "Subject" in df.columns:
+        df["Subject"] = df["Subject"].astype(str).str.replace(r"^H", "", regex=True).str.strip()
+
+    # Keep only wanted fields that exist
+    keep = [c for c in AB_FIELDS_WANTED if c in df.columns]
+    if not keep:
+        _p(f"[WARN] None of the requested AB fields found in {path}. Found columns: {list(df.columns)[:20]}")
+        return pd.DataFrame()
+    # Build small lookup
+    out = df.loc[:, ["Subject", "Year"] + keep].copy()
+    # Coerce Year to int where possible
+    out["Year"] = pd.to_numeric(out["Year"], errors="coerce").astype("Int64")
+    # Drop rows without Subject
+    out = out[out["Subject"].astype(str) != ""].copy()
+    _p(f"[OK] AB lookup prepared: rows={len(out)}, fields={keep}")
+    return out
+
 # ---------- main ----------
 def main():
     try:
@@ -410,8 +495,16 @@ def main():
         df_clin3_all = build_lookup_on_med_id(safe_concat_csvs(str(METADATA_DIR / "Clinical HD 3*.csv"), "Clinical HD 3*.csv"), "Clinical HD 3")
 
         df_bio1_all = build_lookup_on_med_id(safe_concat_csvs(str(METADATA_DIR / "Biomarker HD 1*.csv"), "Biomarker HD 1*.csv"), "Biomarker HD 1")
-        df_bio2_all = build_lookup_on_med_id(safe_concat_csvs(str(METADATA_DIR / "Biomarker HD 2*.csv"), "Biomarker HD 2*.csv"), "Biomarker HD 2")
-        df_bio3_all = build_lookup_on_med_id(safe_concat_csvs(str(METADATA_DIR / "Biomarker HD 3*.csv"), "Biomarker HD 3*.csv"), "Biomarker HD 3")
+        df_bio2_all = build_lookup_on_med_id(safe_concat_csvs(str(METADATA_DIR / "Biomarker HD 2*.csv"), "Biomarker HD 2*.csv"), "Clinical HD 2")  # label reuse OK
+        df_bio3_all = build_lookup_on_med_id(safe_concat_csvs(str(METADATA_DIR / "Biomarker HD 3*.csv"), "Biomarker HD 3*.csv"), "Clinical HD 3")
+
+        # Prepare AB lookup
+        df_ab_lookup = prepare_ab_lookup(HABS_AB_FILE)
+
+        # Precompute present runnos in DWI/FMRI directories for fast membership test
+        dwi_present = set(list_runnos_from_dir_start(DWI_DIR)) | set(list_runnos_from_dir_end(DWI_DIR))
+        fmri_present = set(list_runnos_from_dir_start(FMRI_DIR)) | set(list_runnos_from_dir_end(FMRI_DIR))
+        _p(f"[INFO] DWI runnos found: {len(dwi_present)}; fMRI runnos found: {len(fmri_present)}")
 
         # 5) Build rows + track missing
         _p("[STEP] Building merged rows…")
@@ -445,6 +538,10 @@ def main():
 
                 # Base row (Year immediately after Subject)
                 row = {"runno": runno_str, "Subject": subject, "Year": int(visit), "Sex": sex, "Acq_Date": acq_date}
+
+                # Add DWI / fMRI presence columns (populate with runno string if present)
+                row["DWI"] = runno_str if runno_str in dwi_present else pd.NA
+                row["fMRI"] = runno_str if runno_str in fmri_present else pd.NA
 
                 # ----- Genomics
                 if not df_gen_all.empty and "Med_ID" in df_gen_all.columns:
@@ -517,11 +614,23 @@ def main():
         df_out, clean_stats = clean_values(df_out)
         print_cleaning_summary(clean_stats, "Per-column replacements")
 
+        # Merge AB-enriched fields (match on Subject + Year) if available
+        if not df_ab_lookup.empty:
+            # Ensure df_out Year is Int64 for merge if possible
+            df_out["Year"] = pd.to_numeric(df_out["Year"], errors="coerce").astype("Int64")
+            before_cols = set(df_out.columns)
+            try:
+                df_out = df_out.merge(df_ab_lookup, on=["Subject", "Year"], how="left", suffixes=("", "_absrc"))
+                added = [c for c in df_out.columns if c not in before_cols]
+                _p(f"[OK] Merged AB fields: added columns = {added}")
+            except Exception as e:
+                _p(f"[WARN] AB merge failed: {e}")
+
         # 6) Reorder base fields first (Year immediately after Subject)
-        base_order = ["runno", "Subject", "Year", "Sex", "Acq_Date", "Clinical_HD_Source", "Biomarker_HD_Source"]
+        base_order = ["runno", "Subject", "Year", "Sex", "Acq_Date", "DWI", "fMRI", "Clinical_HD_Source", "Biomarker_HD_Source"]
         remaining = [c for c in df_out.columns if c not in base_order]
         df_out = df_out[[c for c in base_order if c in df_out.columns] + remaining]
-        _p(f"[OK] Raw merged shape (post-clean): {df_out.shape}")
+        _p(f"[OK] Raw merged shape (post-clean+AB merge): {df_out.shape}")
 
         # 7) Deduplicate identical columns
         before = df_out.shape[1]
@@ -534,6 +643,26 @@ def main():
         df_out = remove_constant_columns(df_out)
         after_const = df_out.shape[1]
         _p(f"[CLEAN] Dropped {before2 - after_const} constant columns")
+        _p(f"[OK] Shape after dedup/const-drop: {df_out.shape}")
+
+        # 8.5) Drop low-population columns (<10% non-empty). Protect base_order.
+        nrows = len(df_out)
+        protect = {c for c in ["runno", "Subject", "Year", "Sex", "Acq_Date"]}
+        cols_to_check = [c for c in df_out.columns if c not in protect]
+        dropped_low = []
+        for c in cols_to_check:
+            # define "populated" as notna
+            non_empty = int(df_out[c].notna().sum())
+            prop = non_empty / nrows if nrows else 0.0
+            if prop < 0.10:
+                df_out = df_out.drop(columns=[c])
+                dropped_low.append((c, non_empty, prop))
+                _p(f"[DROP_LOW_POP] Dropped column '{c}' — non-empty rows: {non_empty}/{nrows} ({prop:.1%})")
+        if not dropped_low:
+            _p("[INFO] No low-population columns found (<10%)")
+        else:
+            _p(f"[INFO] Total low-pop columns dropped: {len(dropped_low)}")
+
         _p(f"[OK] Final shape: {df_out.shape}")
 
         # 9) Write CSV
