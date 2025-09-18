@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-HABS Maestro metadata builder — v3 (robust composite-key AB merge)
+HABS Maestro metadata builder — v4 (composite-key + subject-only fallback, diagnostics)
 
-Drop-in replacement for earlier scripts. Produces debug CSVs and a timestamped backup.
+Use as a drop-in replacement. Produces detailed AB-key diagnostics and stronger fallback filling.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import logging
 from pathlib import Path
 from typing import Iterable, List, Tuple, Dict, Set, Optional
 from datetime import datetime
+from collections import defaultdict, Counter
 
 import pandas as pd
 import numpy as np
@@ -149,15 +150,12 @@ def _is_negative_repeated_int_scalar(x) -> bool:
 def clean_values(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Dict[str, int]]]:
     df = df.copy()
     stats = {"minus9999": {}, "neg_repeated": {}, "space_strings": {}}
-
-    # numeric -9999
     for col in df.select_dtypes(include=[np.number]).columns:
         mask = df[col] == -9999
         cnt = int(mask.sum())
         if cnt:
             df.loc[mask, col] = pd.NA
             stats["minus9999"][col] = stats["minus9999"].get(col, 0) + cnt
-    # object -9999
     for col in df.columns:
         if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
             s = df[col].astype("string")
@@ -167,7 +165,6 @@ def clean_values(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Dict[str, in
                 s = s.mask(mask, pd.NA)
                 df[col] = s
                 stats["minus9999"][col] = stats["minus9999"].get(col, 0) + cnt
-    # neg repeated placeholders
     for col in df.columns:
         if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
             s = df[col].astype("string")
@@ -183,7 +180,6 @@ def clean_values(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Dict[str, in
         if cnt:
             df.loc[mask, col] = pd.NA
             stats["neg_repeated"][col] = stats["neg_repeated"].get(col, 0) + cnt
-    # whitespace -> CUT
     for col in df.columns:
         if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
             s = df[col].astype("string")
@@ -234,10 +230,8 @@ def prepare_ab_lookup(path: Path) -> pd.DataFrame:
         return pd.DataFrame()
     df = df.copy()
     cols = {c.lower(): c for c in df.columns}
-    # try med_id
     if "med_id" in cols:
         df["Subject"] = df[cols["med_id"]].astype(str).str.strip()
-    # try runno-like
     runno_col = None
     for cand in ("runno", "run_no", "runnos", "id"):
         if cand in cols:
@@ -255,7 +249,6 @@ def prepare_ab_lookup(path: Path) -> pd.DataFrame:
                 year_list.append(np.nan)
         df["Subject"] = pd.Series(subj_list)
         df["Year"] = pd.Series(year_list)
-    # try visit -> year mapping
     if "Year" not in df.columns:
         if "visit" in cols:
             def visit_to_year(v):
@@ -272,7 +265,6 @@ def prepare_ab_lookup(path: Path) -> pd.DataFrame:
             df["Year"] = df[cols["visit"]].apply(visit_to_year)
         elif "visit_id" in cols:
             df["Year"] = pd.to_numeric(df[cols["visit_id"]], errors="coerce").map({1:0, 3:2})
-    # final subject cleaning
     if "Subject" in df.columns:
         df["Subject"] = df["Subject"].astype(str).str.replace(r"^H", "", regex=True).str.strip()
     keep = [c for c in AB_FIELDS_WANTED if c in df.columns]
@@ -289,7 +281,7 @@ def prepare_ab_lookup(path: Path) -> pd.DataFrame:
 def main():
     ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     try:
-        _p("[START] HABS Maestro metadata build (v3)")
+        _p("[START] HABS Maestro metadata build (v4)")
         runnos = compile_ordered_runnos(dirs_start=[DWI_DIR], dirs_end=[FMRI_DIR])
         if not runnos:
             _p("[FATAL] No runnos found.")
@@ -375,21 +367,17 @@ def main():
                     clin_allowed = [(1, df_clin1_all)]
                 else:
                     clin_allowed = [(2, df_clin2_all), (3, df_clin3_all)]
-
                 def pick_best(subj, allowed, exp_vid):
                     for bucket, dfc in allowed:
                         if dfc.empty or "Med_ID" not in dfc.columns: continue
                         sub = dfc[dfc["Med_ID"] == subj].copy()
                         if sub.empty: continue
-                        # prefer exact Visit_ID match
                         if "Visit_ID" in sub.columns:
                             exact = sub[sub["Visit_ID"].astype(str).str.strip() == str(exp_vid)]
                             if not exact.empty:
                                 return exact.iloc[0], bucket
-                        # otherwise return first found row
                         return sub.iloc[0], bucket
                     return None, None
-
                 clin_sel, clin_bucket = pick_best(subject, clin_allowed, expected_visit_id)
                 if clin_sel is None:
                     miss_clinical.add(runno_str)
@@ -488,7 +476,7 @@ def main():
 
         # ---------------------------
         # FINAL AB RECONCILIATION (after all drops, BEFORE writing csv)
-        # Uses robust composite string keys "Subject|Year"
+        # Composite key + Subject-only fallback + diagnostics
         # ---------------------------
         _p("[STEP] Final AB reconciliation (post-drops)")
 
@@ -499,15 +487,22 @@ def main():
             df_ab_lookup["Subject"] = df_ab_lookup["Subject"].astype(str).str.strip()
             df_ab_lookup["Year"] = pd.to_numeric(df_ab_lookup["Year"], errors="coerce").astype("Int64")
 
+        # rename suffixed -> canonical if present
         if not df_ab_lookup.empty:
-            # If suffixed columns exist and canonical does not, rename them
             for fld in AB_FIELDS_WANTED:
                 suff = f"{fld}_absrc"
                 if suff in df_out.columns and fld not in df_out.columns:
                     df_out.rename(columns={suff: fld}, inplace=True)
                     _p(f"[AB-FINAL] Renamed '{suff}' -> '{fld}'")
 
-            # Build composite key strings on both sides and map
+        # If no AB lookup, create empty canonical columns
+        if df_ab_lookup.empty:
+            for fld in AB_FIELDS_WANTED:
+                if fld not in df_out.columns:
+                    df_out[fld] = pd.NA
+            _p("[AB-FINAL-ENSURE] No AB lookup file -> created empty AB columns")
+        else:
+            # Build composite key strings on both sides
             def mk_key_series(df, subj_col="Subject", year_col="Year"):
                 y = df[year_col].astype(object).where(df[year_col].notna(), "")
                 return df[subj_col].astype(str).str.strip() + "|" + y.astype(str)
@@ -516,51 +511,99 @@ def main():
             ab_tmp = df_ab_lookup.copy()
             ab_tmp["_ab__key"] = mk_key_series(ab_tmp, "Subject", "Year")
 
-            # build mapping dict per field (last occurrence wins)
-            mapping_dicts = {}
+            # Diagnostics: key set sizes and intersection
+            out_keys = set(df_out["_ab__key"].astype(str).unique())
+            ab_keys = set(ab_tmp["_ab__key"].astype(str).unique())
+            inter = out_keys & ab_keys
+            _p(f"[AB-KEY-DIAG] df_out keys={len(out_keys)}, ab_lookup keys={len(ab_keys)}, intersection={len(inter)}")
+            # show sample keys
+            sample_out = list(sorted(out_keys))[:20]
+            sample_ab = list(sorted(ab_keys))[:20]
+            _p(f"[AB-KEY-DIAG] sample df_out keys (first 20): {sample_out}")
+            _p(f"[AB-KEY-DIAG] sample ab_lookup keys (first 20): {sample_ab}")
+
+            # Build composite mapping dicts
+            composite_maps = {}
             for fld in AB_FIELDS_WANTED:
                 if fld in ab_tmp.columns:
-                    # use the last entry for duplicate keys: take series and convert to dict (index -> value)
                     s = pd.Series(ab_tmp[fld].values, index=ab_tmp["_ab__key"].astype(str))
-                    mapping_dicts[fld] = s.to_dict()
+                    composite_maps[fld] = s.to_dict()
                 else:
-                    mapping_dicts[fld] = {}
+                    composite_maps[fld] = {}
 
-            # fill/add using mapping dicts
+            # Apply composite mapping first
+            composite_fills = Counter()
+            subject_fills = Counter()
             for fld in AB_FIELDS_WANTED:
-                mapped = df_out["_ab__key"].map(mapping_dicts.get(fld, {}))
+                mapped = df_out["_ab__key"].map(composite_maps.get(fld, {}))
+                # if column exists, only fill where missing
                 if fld in df_out.columns:
-                    before_nonnull = int(df_out[fld].notna().sum())
+                    before = int(df_out[fld].notna().sum())
                     df_out[fld] = df_out[fld].where(df_out[fld].notna(), mapped)
-                    after_nonnull = int(df_out[fld].notna().sum())
-                    _p(f"[AB-FINAL-FILL] {fld}: filled {after_nonnull - before_nonnull} values from AB-lookup (now {after_nonnull}/{len(df_out)})")
+                    after = int(df_out[fld].notna().sum())
+                    composite_fills[fld] = after - before
+                    _p(f"[AB-COMP-FILL] {fld}: composite filled {composite_fills[fld]} values (now {after}/{len(df_out)})")
                 else:
                     df_out[fld] = mapped
-                    _p(f"[AB-FINAL-ADD] {fld}: added from AB-lookup (non-empty={int(df_out[fld].notna().sum())}/{len(df_out)})")
+                    composite_fills[fld] = int(df_out[fld].notna().sum())
+                    _p(f"[AB-COMP-ADD] {fld}: composite added {composite_fills[fld]} non-empty values")
 
-            # cleanup
-            df_out.drop(columns=["_ab__key"], inplace=True, errors="ignore")
-        else:
-            # ensure columns exist (empty) so it's obvious in final CSV
+            # If composite intersection is small/zero for some fields, attempt Subject-only fallback
+            # Build ab_lookup grouped by Subject for fallback decisions
+            ab_by_subject = defaultdict(list)
+            for _, r in ab_tmp.iterrows():
+                subj = str(r["Subject"]).strip()
+                yr = r["Year"] if "Year" in r.index else pd.NA
+                vals = {fld: r.get(fld, pd.NA) for fld in AB_FIELDS_WANTED if fld in r.index}
+                ab_by_subject[subj].append({"Year": yr, **vals})
+
+            # Now, per-row subject-only fill where composite didn't fill
+            subj_filled_counts = Counter()
+            for idx, row in df_out.iterrows():
+                if pd.isna(row.get("Subject")) or str(row.get("Subject")).strip() == "":
+                    continue
+                subj = str(row["Subject"]).strip()
+                desired_year = row["Year"]
+                candidates = ab_by_subject.get(subj, [])
+                if not candidates:
+                    continue
+                # try to select candidate with same Year first
+                best_candidate = None
+                for cand in candidates:
+                    if pd.notna(desired_year) and cand.get("Year") == desired_year:
+                        best_candidate = cand
+                        break
+                if best_candidate is None:
+                    best_candidate = candidates[0]
+                # For each AB field, if df_out missing, fill from best_candidate
+                for fld in AB_FIELDS_WANTED:
+                    if fld not in df_out.columns:
+                        continue
+                    if pd.isna(df_out.at[idx, fld]):
+                        val = best_candidate.get(fld, pd.NA)
+                        if pd.notna(val):
+                            df_out.at[idx, fld] = val
+                            subj_filled_counts[fld] += 1
+
+            # report subject-only fills
             for fld in AB_FIELDS_WANTED:
-                if fld not in df_out.columns:
-                    df_out[fld] = pd.NA
-                    _p(f"[AB-FINAL-ENSURE] Created empty AB column '{fld}' (no AB lookup)")
+                subject_fills[fld] = subj_filled_counts.get(fld, 0)
+                if subject_fills[fld]:
+                    _p(f"[AB-SUBJ-FILL] {fld}: subject-only filled {subject_fills[fld]} additional values")
 
-        # final diagnostics + debug CSV
-        for fld in AB_FIELDS_WANTED:
-            non_empty = int(df_out[fld].notna().sum())
-            _p(f"[AB-FINAL-COUNT] {fld}: non-empty={non_empty}/{len(df_out)} ({(non_empty/len(df_out) if len(df_out) else 0):.1%})")
+            # full counts summary
+            for fld in AB_FIELDS_WANTED:
+                non_empty = int(df_out[fld].notna().sum())
+                _p(f"[AB-FILL-DETAILS] {fld}: composite={composite_fills[fld]}, subject_fallback={subject_fills[fld]}, total_non_empty={non_empty}/{len(df_out)}")
 
-        try:
-            dbg_path = PRIMARY_OUT_PATH.with_name(PRIMARY_OUT_PATH.stem + f".AB_final_debug.{ts}.csv")
-            dbg_cols = ["Subject", "Year"] + AB_FIELDS_WANTED
-            df_out.loc[:, dbg_cols].to_csv(dbg_path, index=False)
-            _p(f"[DEBUG] Wrote AB final debug file -> {dbg_path} (rows={len(df_out)})")
-            _p(f"[DEBUG] Sample:")
-            _p(str(df_out.loc[:, dbg_cols].head(6)))
-        except Exception as e:
-            _p(f"[WARN] Could not write AB final debug CSV: {e}")
+            # Write a debug CSV that shows where fields remain NaN after both attempts
+            try:
+                dbg_path = PRIMARY_OUT_PATH.with_name(PRIMARY_OUT_PATH.stem + f".AB_final_debug.{ts}.csv")
+                dbg_cols = ["Subject", "Year"] + AB_FIELDS_WANTED
+                df_out.loc[:, dbg_cols].to_csv(dbg_path, index=False)
+                _p(f"[DEBUG] Wrote AB final debug file -> {dbg_path} (rows={len(df_out)})")
+            except Exception as e:
+                _p(f"[WARN] Could not write AB final debug CSV: {e}")
 
         # ---------------------------
         # final write + timestamped backup
