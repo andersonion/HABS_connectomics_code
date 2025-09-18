@@ -1,19 +1,8 @@
 #!/usr/bin/env python3
 """
-HABS Maestro metadata builder — v2 (AB-merge reconciliation, debug files, git-friendly)
+HABS Maestro metadata builder — v3 (robust composite-key AB merge)
 
-Place in your repo, run in the same environment you use for the prior script.
-
-What this version does (summary):
- - Builds the master HABS maestro metadata CSV from runnos and many source CSVs (same logic as before).
- - Loads AB-enriched file and merges fields:
-      BAG_AB, cBAG_AB, PredictedAge_AB, PredictedAge_corrected_AB, Delta_BAG_AB, Delta_cBAG_AB
- - Logs and writes AB debug CSVs:
-      * <outprefix>.AB_debug_premerge.csv  (after first merge)
-      * <outprefix>.AB_final_debug.csv     (after final reconciliation, right before final write)
- - Ensures AB fields are present in final CSV even if earlier steps rename/drop columns.
- - Protects AB fields from low-pop removal (<10%) and provides diagnostics.
- - Writes timestamped backup of final CSV (so you can include diffs in git).
+Drop-in replacement for earlier scripts. Produces debug CSVs and a timestamped backup.
 """
 
 from __future__ import annotations
@@ -66,7 +55,6 @@ def read_table(path: Path) -> pd.DataFrame:
     if path.suffix.lower() in [".xlsx", ".xls"]:
         df = pd.read_excel(path)
     else:
-        # use low_memory=False to avoid mixed-type warnings, keep object dtype where needed
         df = pd.read_csv(path, low_memory=False)
     df.columns = [c.strip().replace(" ", "_") for c in df.columns]
     return df
@@ -143,7 +131,7 @@ def map_visit_code(visit: str) -> str:
     else:
         raise ValueError(f"Unexpected visit code: {visit!r}")
 
-# ----------------- cleaning helpers (kept from original) -----------------
+# ----------------- cleaning helpers -----------------
 def _is_negative_repeated_int_scalar(x) -> bool:
     if pd.isna(x):
         return False
@@ -195,7 +183,7 @@ def clean_values(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Dict[str, in
         if cnt:
             df.loc[mask, col] = pd.NA
             stats["neg_repeated"][col] = stats["neg_repeated"].get(col, 0) + cnt
-    # whitespace strings -> CUT
+    # whitespace -> CUT
     for col in df.columns:
         if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
             s = df[col].astype("string")
@@ -260,7 +248,7 @@ def prepare_ab_lookup(path: Path) -> pd.DataFrame:
         for val in df[runno_col].astype(str).fillna(""):
             m = RUNNO_PATTERN.match(val)
             if m:
-                subj_list.append(m.group(1)[1:])  # strip H
+                subj_list.append(m.group(1)[1:])  # strip leading H
                 year_list.append(int(m.group(2)))
             else:
                 subj_list.append("")
@@ -301,16 +289,15 @@ def prepare_ab_lookup(path: Path) -> pd.DataFrame:
 def main():
     ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     try:
-        _p("[START] HABS Maestro metadata build (v2)")
+        _p("[START] HABS Maestro metadata build (v3)")
         runnos = compile_ordered_runnos(dirs_start=[DWI_DIR], dirs_end=[FMRI_DIR])
         if not runnos:
             _p("[FATAL] No runnos found.")
             return
 
         df_dual = read_table(HABS_DUAL_FILE)
-        # normalize minimal columns
-        if "Subject" in df_dual.columns: df_dual["Subject"] = df_dual["Subject"].astype(str).str.strip()
-        df_dual = df_dual.copy()
+        if "Subject" in df_dual.columns:
+            df_dual["Subject"] = df_dual["Subject"].astype(str).str.strip()
         subj_to_visit_dates = {}
         if not df_dual.empty:
             for _, r in df_dual.iterrows():
@@ -383,25 +370,23 @@ def main():
                 else:
                     miss_genomics.add(runno_str)
 
-                # clinical
+                # clinical (simplified pick_best to avoid complexity)
                 if visit == "0":
                     clin_allowed = [(1, df_clin1_all)]
                 else:
                     clin_allowed = [(2, df_clin2_all), (3, df_clin3_all)]
-                # choose_best_row simplified: pick first row with minimal date distance or Visit_ID match
+
                 def pick_best(subj, allowed, exp_vid):
-                    cand = None
-                    best_dist = pd.Timedelta.max
                     for bucket, dfc in allowed:
                         if dfc.empty or "Med_ID" not in dfc.columns: continue
                         sub = dfc[dfc["Med_ID"] == subj].copy()
                         if sub.empty: continue
-                        # try visit id match
+                        # prefer exact Visit_ID match
                         if "Visit_ID" in sub.columns:
                             exact = sub[sub["Visit_ID"].astype(str).str.strip() == str(exp_vid)]
                             if not exact.empty:
                                 return exact.iloc[0], bucket
-                        # else choose first (this is conservative)
+                        # otherwise return first found row
                         return sub.iloc[0], bucket
                     return None, None
 
@@ -444,7 +429,6 @@ def main():
 
         # Initial AB merge (left). This may add columns with exact canonical names or suffixed copies.
         if not df_ab_lookup.empty:
-            # normalize keys
             df_out["Subject"] = df_out["Subject"].astype(str).str.strip()
             df_out["Year"] = pd.to_numeric(df_out["Year"], errors="coerce").astype("Int64")
             df_ab_lookup["Subject"] = df_ab_lookup["Subject"].astype(str).str.strip()
@@ -456,14 +440,13 @@ def main():
                 _p(f"[OK] Merged AB fields (raw added cols) = {added}")
             except Exception as e:
                 _p(f"[WARN] AB merge failed: {e}")
-            # diagnostics: pre-merge debug slice
+            # premerge debug
             try:
-                dbg_pre = Path(str(PRIMARY_OUT_PATH).replace(".csv", ""))  # base for debug files
-                pre_dbg_path = dbg_pre.with_name(dbg_pre.stem + ".AB_debug_premerge.csv")
+                dbg_pre_base = PRIMARY_OUT_PATH.with_name(PRIMARY_OUT_PATH.stem + ".AB_debug_premerge.csv")
                 dbg_cols = ["Subject", "Year"] + [c for c in AB_FIELDS_WANTED if c in df_out.columns or f"{c}_absrc" in df_out.columns]
-                if dbg_cols:
-                    df_out.loc[:, dbg_cols].to_csv(pre_dbg_path, index=False)
-                    _p(f"[DEBUG] Wrote AB pre-merge debug -> {pre_dbg_path}")
+                if len(dbg_cols) > 0:
+                    df_out.loc[:, dbg_cols].to_csv(dbg_pre_base, index=False)
+                    _p(f"[DEBUG] Wrote AB pre-merge debug -> {dbg_pre_base}")
             except Exception as e:
                 _p(f"[WARN] Could not write AB premerge debug: {e}")
         else:
@@ -505,9 +488,11 @@ def main():
 
         # ---------------------------
         # FINAL AB RECONCILIATION (after all drops, BEFORE writing csv)
+        # Uses robust composite string keys "Subject|Year"
         # ---------------------------
         _p("[STEP] Final AB reconciliation (post-drops)")
 
+        # normalize keys
         df_out["Subject"] = df_out["Subject"].astype(str).str.strip()
         df_out["Year"] = pd.to_numeric(df_out["Year"], errors="coerce").astype("Int64")
         if not df_ab_lookup.empty:
@@ -515,39 +500,52 @@ def main():
             df_ab_lookup["Year"] = pd.to_numeric(df_ab_lookup["Year"], errors="coerce").astype("Int64")
 
         if not df_ab_lookup.empty:
-            # rename suffixed -> canonical if present
+            # If suffixed columns exist and canonical does not, rename them
             for fld in AB_FIELDS_WANTED:
                 suff = f"{fld}_absrc"
                 if suff in df_out.columns and fld not in df_out.columns:
                     df_out.rename(columns={suff: fld}, inplace=True)
                     _p(f"[AB-FINAL] Renamed '{suff}' -> '{fld}'")
-            # fill / add from AB lookup by mapping (Subject, Year)
-            try:
-                ab_indexed = df_ab_lookup.set_index(["Subject", "Year"])
-                for fld in AB_FIELDS_WANTED:
-                    if fld in ab_indexed.columns:
-                        map_ser = ab_indexed[fld]
-                        keys = list(zip(df_out["Subject"].astype(str), df_out["Year"].astype("Int64").tolist()))
-                        mapped = pd.Series([map_ser.get(k, pd.NA) for k in keys], index=df_out.index)
-                        if fld in df_out.columns:
-                            before_nonnull = int(df_out[fld].notna().sum())
-                            df_out[fld] = df_out[fld].where(df_out[fld].notna(), mapped)
-                            after_nonnull = int(df_out[fld].notna().sum())
-                            _p(f"[AB-FINAL-FILL] {fld}: filled {after_nonnull - before_nonnull} values from AB-lookup (now {after_nonnull}/{len(df_out)})")
-                        else:
-                            df_out[fld] = mapped
-                            _p(f"[AB-FINAL-ADD] {fld}: added from AB-lookup (non-empty={int(df_out[fld].notna().sum())}/{len(df_out)})")
-                    else:
-                        if fld not in df_out.columns:
-                            df_out[fld] = pd.NA
-                            _p(f"[AB-FINAL-ENSURE] {fld} not in AB lookup; created empty canonical column")
-            except Exception as e:
-                _p(f"[WARN] Final AB reconciliation failed: {e}")
+
+            # Build composite key strings on both sides and map
+            def mk_key_series(df, subj_col="Subject", year_col="Year"):
+                y = df[year_col].astype(object).where(df[year_col].notna(), "")
+                return df[subj_col].astype(str).str.strip() + "|" + y.astype(str)
+
+            df_out["_ab__key"] = mk_key_series(df_out, "Subject", "Year")
+            ab_tmp = df_ab_lookup.copy()
+            ab_tmp["_ab__key"] = mk_key_series(ab_tmp, "Subject", "Year")
+
+            # build mapping dict per field (last occurrence wins)
+            mapping_dicts = {}
+            for fld in AB_FIELDS_WANTED:
+                if fld in ab_tmp.columns:
+                    # use the last entry for duplicate keys: take series and convert to dict (index -> value)
+                    s = pd.Series(ab_tmp[fld].values, index=ab_tmp["_ab__key"].astype(str))
+                    mapping_dicts[fld] = s.to_dict()
+                else:
+                    mapping_dicts[fld] = {}
+
+            # fill/add using mapping dicts
+            for fld in AB_FIELDS_WANTED:
+                mapped = df_out["_ab__key"].map(mapping_dicts.get(fld, {}))
+                if fld in df_out.columns:
+                    before_nonnull = int(df_out[fld].notna().sum())
+                    df_out[fld] = df_out[fld].where(df_out[fld].notna(), mapped)
+                    after_nonnull = int(df_out[fld].notna().sum())
+                    _p(f"[AB-FINAL-FILL] {fld}: filled {after_nonnull - before_nonnull} values from AB-lookup (now {after_nonnull}/{len(df_out)})")
+                else:
+                    df_out[fld] = mapped
+                    _p(f"[AB-FINAL-ADD] {fld}: added from AB-lookup (non-empty={int(df_out[fld].notna().sum())}/{len(df_out)})")
+
+            # cleanup
+            df_out.drop(columns=["_ab__key"], inplace=True, errors="ignore")
         else:
+            # ensure columns exist (empty) so it's obvious in final CSV
             for fld in AB_FIELDS_WANTED:
                 if fld not in df_out.columns:
                     df_out[fld] = pd.NA
-                    _p(f"[AB-FINAL-ENSURE] No AB lookup file; created empty column '{fld}'")
+                    _p(f"[AB-FINAL-ENSURE] Created empty AB column '{fld}' (no AB lookup)")
 
         # final diagnostics + debug CSV
         for fld in AB_FIELDS_WANTED:
@@ -570,10 +568,8 @@ def main():
         out_path = PRIMARY_OUT_PATH
         out_dir = out_path.parent
         out_dir.mkdir(parents=True, exist_ok=True)
-        # write main CSV
         df_out.to_csv(out_path, index=False)
         _p(f"[DONE] Wrote CSV: {out_path}  (rows={df_out.shape[0]}, cols={df_out.shape[1]})")
-        # write timestamped backup for git diffs
         bak_path = out_path.with_name(out_path.stem + f".{ts}.bak.csv")
         df_out.to_csv(bak_path, index=False)
         _p(f"[DONE] Wrote timestamped backup CSV: {bak_path}")
