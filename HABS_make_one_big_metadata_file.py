@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
 """
-HABS Maestro metadata builder (verbose, header fix, clinical/biomarker safety + inference + detailed cleaning report)
+HABS Maestro metadata builder — v2 (AB-merge reconciliation, debug files, git-friendly)
 
-Modifications (2025-09-16):
- - Adds DWI and fMRI columns: populated with runno string if a corresponding file exists.
- - Loads /mnt/newStor/paros/paros_WORK//harmonization/HABS/metadata/HABS_metadata_AB_enriched_v2.csv and merges the fields:
-     BAG_AB, cBAG_AB, PredictedAge_AB, PredictedAge_corrected_AB, Delta_BAG_AB, Delta_cBAG_AB
-   Matching is attempted robustly using runno / Med_ID + Visit mapping / runno parsing.
- - Before writing, drops any column with <10% non-empty values (protects core base fields) and logs removal.
+Place in your repo, run in the same environment you use for the prior script.
+
+What this version does (summary):
+ - Builds the master HABS maestro metadata CSV from runnos and many source CSVs (same logic as before).
+ - Loads AB-enriched file and merges fields:
+      BAG_AB, cBAG_AB, PredictedAge_AB, PredictedAge_corrected_AB, Delta_BAG_AB, Delta_cBAG_AB
+ - Logs and writes AB debug CSVs:
+      * <outprefix>.AB_debug_premerge.csv  (after first merge)
+      * <outprefix>.AB_final_debug.csv     (after final reconciliation, right before final write)
+ - Ensures AB fields are present in final CSV even if earlier steps rename/drop columns.
+ - Protects AB fields from low-pop removal (<10%) and provides diagnostics.
+ - Writes timestamped backup of final CSV (so you can include diffs in git).
 """
+
 from __future__ import annotations
 import os
 import re
@@ -18,33 +25,28 @@ import traceback
 import logging
 from pathlib import Path
 from typing import Iterable, List, Tuple, Dict, Set, Optional
+from datetime import datetime
 
 import pandas as pd
 import numpy as np
 
-# ----------------------------
-# Hardcoded inputs (edit here)
-# ----------------------------
+# ---------- USER EDITABLE ----------
 DWI_DIR = Path("/mnt/newStor/paros/paros_WORK//harmonization/HABS/connectomes/DWI/plain/")
 FMRI_DIR = Path("/mnt/newStor/paros/paros_WORK//harmonization/HABS/connectomes/fMRI/")
 
-# Metadata folder (your corrected path)
 METADATA_DIR = Path("/mnt/newStor/paros/paros_WORK/ADNI_HABS_request-545/")
-HABS_DUAL_FILE = METADATA_DIR / "ADNI_HABS_dual_2years_2_05_2025.csv"  # first CSV
+HABS_DUAL_FILE = METADATA_DIR / "ADNI_HABS_dual_2years_2_05_2025.csv"
 
-# AB-enriched file (fields to import below)
 HABS_AB_FILE = Path("/mnt/newStor/paros/paros_WORK//harmonization/HABS/metadata/HABS_metadata_AB_enriched_v2.csv")
 AB_FIELDS_WANTED = [
     "BAG_AB", "cBAG_AB", "PredictedAge_AB",
     "PredictedAge_corrected_AB", "Delta_BAG_AB", "Delta_cBAG_AB"
 ]
 
-# Output (primary, then fallback using $WORK if needed)
 PRIMARY_OUT_PATH = Path("/mnt/newStor/paros/paros_WORK//harmonization/HABS/metadata/HABS_maestro_metadata.csv")
-FALLBACK_OUT_PATH = (Path(os.environ.get("WORK", "")) / "harmonization/HABS/metadata/HABS_maestro_metadata.csv") if os.environ.get("WORK") else None
-# ----------------------------
+# -----------------------------------
 
-# Loud logs to stdout
+# Logging to stdout
 handler = logging.StreamHandler(stream=sys.stdout)
 handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
 logging.getLogger().handlers[:] = [handler]
@@ -57,41 +59,34 @@ def _p(msg: str):
 RUNNO_PATTERN = re.compile(r"^(H[^_]+)_y([02])($|[^0-9])")
 RUNNO_AT_END_PATTERN = re.compile(r"(H[^_/\\]+_y[02])(?=\.csv$)", re.IGNORECASE)
 
-# ---------- utilities ----------
-def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Replace spaces with underscores in column names."""
-    df = df.copy()
-    df.columns = [c.strip().replace(" ", "_") for c in df.columns]
-    return df
-
-def parse_date_cols(df: pd.DataFrame, prefer_cols: Optional[List[str]] = None) -> pd.DataFrame:
-    """
-    Convert date-like columns to datetime. First try 'prefer_cols' if provided,
-    then any column containing 'date' (case-insensitive).
-    """
-    df = df.copy()
-    tried: Set[str] = set()
-    if prefer_cols:
-        for c in prefer_cols:
-            if c in df.columns:
-                df[c] = pd.to_datetime(df[c], errors="coerce")
-                tried.add(c)
-    for c in df.columns:
-        if c in tried:
-            continue
-        if "date" in c.lower():
-            df[c] = pd.to_datetime(df[c], errors="coerce")
-    return df
-
+# ----------------- I/O helpers -----------------
 def read_table(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(str(path))
     if path.suffix.lower() in [".xlsx", ".xls"]:
         df = pd.read_excel(path)
     else:
-        df = pd.read_csv(path)
-    return normalize_columns(df)
+        # use low_memory=False to avoid mixed-type warnings, keep object dtype where needed
+        df = pd.read_csv(path, low_memory=False)
+    df.columns = [c.strip().replace(" ", "_") for c in df.columns]
+    return df
 
+def safe_concat_csvs(pattern: str, label: str) -> pd.DataFrame:
+    paths = sorted(glob.glob(pattern))
+    _p(f"[STEP] Loading {label}: pattern={pattern} (found {len(paths)} files)")
+    frames = []
+    for pth in paths:
+        try:
+            df = pd.read_csv(pth, low_memory=False)
+            df.columns = [c.strip().replace(" ", "_") for c in df.columns]
+            frames.append(df)
+        except Exception as e:
+            _p(f"[WARN] Failed to read {pth}: {e}")
+    out = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    _p(f"[OK] {label}: rows={len(out)}, cols={len(out.columns)}")
+    return out
+
+# ----------------- runno helpers -----------------
 def list_runnos_from_dir_start(dirpath: Path) -> List[str]:
     runnos = set()
     for p in dirpath.glob("*"):
@@ -148,67 +143,82 @@ def map_visit_code(visit: str) -> str:
     else:
         raise ValueError(f"Unexpected visit code: {visit!r}")
 
-def safe_concat_csvs(pattern: str, label: str) -> pd.DataFrame:
-    paths = sorted(glob.glob(pattern))
-    _p(f"[STEP] Loading {label}: pattern={pattern} (found {len(paths)} files)")
-    frames = []
-    for pth in paths:
-        try:
-            df = pd.read_csv(pth)
-            df = normalize_columns(df)
-            frames.append(df)
-        except Exception as e:
-            _p(f"[WARN] Failed to read {pth}: {e}")
-    out = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
-    _p(f"[OK] {label}: rows={len(out)}, cols={len(out.columns)}")
-    return out
+# ----------------- cleaning helpers (kept from original) -----------------
+def _is_negative_repeated_int_scalar(x) -> bool:
+    if pd.isna(x):
+        return False
+    if isinstance(x, (int, np.integer)) or (isinstance(x, (float, np.floating)) and float(x).is_integer()):
+        xi = int(x)
+        if xi >= 0:
+            return False
+        s = str(abs(xi))
+        return len(s) >= 3 and len(set(s)) == 1
+    if isinstance(x, str):
+        s = x.strip()
+        return re.fullmatch(r"-\s*([0-9])\1{2,}", s) is not None
+    return False
 
-# ---------- lookups ----------
-def load_first_csv_table(path: Path) -> pd.DataFrame:
-    _p(f"[STEP] Loading first CSV: {path}")
-    df = read_table(path)
-    df = parse_date_cols(df, prefer_cols=["Acq_Date"])
-    _p(f"[OK] Rows: {len(df)}, Cols: {len(df.columns)} (Acq_Date dtype={df.get('Acq_Date', pd.Series()).dtype})")
-    required = {"Subject", "Visit", "Sex", "Acq_Date"}
-    missing = required - set(df.columns)
-    if missing:
-        _p(f"[WARN] First CSV missing expected columns: {sorted(missing)}")
-    for c in ["Subject", "Visit"]:
-        if c in df.columns:
-            df[c] = df[c].astype(str).str.strip()
-    return df
+def clean_values(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Dict[str, int]]]:
+    df = df.copy()
+    stats = {"minus9999": {}, "neg_repeated": {}, "space_strings": {}}
 
-def build_dual_date_map(df_dual: pd.DataFrame) -> Dict[str, Dict[str, pd.Timestamp]]:
-    """Returns {subject: {'BL': date_or_NaT, 'M24': date_or_NaT}}"""
-    out: Dict[str, Dict[str, pd.Timestamp]] = {}
-    if df_dual.empty:
-        return out
-    for _, row in df_dual.iterrows():
-        subj = str(row.get("Subject", "")).strip()
-        visit = str(row.get("Visit", "")).strip()
-        acq = row.get("Acq_Date", pd.NaT)
-        if not subj:
-            continue
-        if subj not in out:
-            out[subj] = {"BL": pd.NaT, "M24": pd.NaT}
-        if visit in ("BL", "M24"):
-            out[subj][visit] = acq
-    return out
+    # numeric -9999
+    for col in df.select_dtypes(include=[np.number]).columns:
+        mask = df[col] == -9999
+        cnt = int(mask.sum())
+        if cnt:
+            df.loc[mask, col] = pd.NA
+            stats["minus9999"][col] = stats["minus9999"].get(col, 0) + cnt
+    # object -9999
+    for col in df.columns:
+        if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
+            s = df[col].astype("string")
+            mask = s.str.fullmatch(r"\s*-9999\s*", na=False)
+            cnt = int(mask.sum())
+            if cnt:
+                s = s.mask(mask, pd.NA)
+                df[col] = s
+                stats["minus9999"][col] = stats["minus9999"].get(col, 0) + cnt
+    # neg repeated placeholders
+    for col in df.columns:
+        if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
+            s = df[col].astype("string")
+            mask = s.str.fullmatch(r"\s*-\s*([0-9])\1{2,}\s*", na=False)
+            cnt = int(mask.sum())
+            if cnt:
+                s = s.mask(mask, pd.NA)
+                df[col] = s
+                stats["neg_repeated"][col] = stats["neg_repeated"].get(col, 0) + cnt
+    for col in df.select_dtypes(include=[np.number]).columns:
+        mask = df[col].apply(_is_negative_repeated_int_scalar)
+        cnt = int(mask.sum())
+        if cnt:
+            df.loc[mask, col] = pd.NA
+            stats["neg_repeated"][col] = stats["neg_repeated"].get(col, 0) + cnt
+    # whitespace strings -> CUT
+    for col in df.columns:
+        if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
+            s = df[col].astype("string")
+            mask = s.str.contains(r"\s", na=False)
+            cnt = int(mask.sum())
+            if cnt:
+                s = s.mask(mask, "CUT")
+                df[col] = s
+                stats["space_strings"][col] = stats["space_strings"].get(col, 0) + cnt
+    return df, stats
 
-def build_lookup_on_med_id(df: pd.DataFrame, label: str) -> pd.DataFrame:
-    if df.empty:
-        _p(f"[INFO] {label} is empty.")
-        return df
-    if "Med_ID" not in df.columns:
-        _p(f"[WARN] {label} has no 'Med_ID' column. Columns: {list(df.columns)[:12]}…")
-        return df
-    out = df.copy()
-    out["Med_ID"] = out["Med_ID"].astype(str).str.strip()
-    out = parse_date_cols(out, prefer_cols=["Interview_Date"])
-    _p(f"[OK] {label}: unique Med_IDs={out['Med_ID'].nunique(dropna=True)}")
-    return out
+def print_cleaning_summary(stats: Dict[str, Dict[str, int]], title: str):
+    def _top(d: Dict[str, int], k=10):
+        return sorted(d.items(), key=lambda kv: kv[1], reverse=True)[:k]
+    _p(f"[CLEAN-SUMMARY] {title}")
+    for cat in ("minus9999", "neg_repeated", "space_strings"):
+        colmap = stats.get(cat, {})
+        total = sum(colmap.values())
+        _p(f"  - {cat}: total replaced = {total}")
+        if total:
+            for col, cnt in _top(colmap):
+                _p(f"      • {col}: {cnt}")
 
-# ---------- cleaning ----------
 def remove_duplicate_identical_columns(df: pd.DataFrame) -> pd.DataFrame:
     keep_cols, seen = [], []
     for col in df.columns:
@@ -224,381 +234,199 @@ def remove_constant_columns(df: pd.DataFrame) -> pd.DataFrame:
     mask = df.apply(lambda s: s.nunique(dropna=False) > 1)
     return df.loc[:, list(mask[mask].index)]
 
-def _is_negative_repeated_int_scalar(x) -> bool:
-    """True if x is a negative integer consisting of a single repeated digit, length >= 3 (e.g., -777777)."""
-    if pd.isna(x):
-        return False
-    # numeric path
-    if isinstance(x, (int, np.integer)) or (isinstance(x, (float, np.floating)) and float(x).is_integer()):
-        xi = int(x)
-        if xi >= 0:
-            return False
-        s = str(abs(xi))
-        return len(s) >= 3 and len(set(s)) == 1
-    # string path
-    if isinstance(x, str):
-        s = x.strip()
-        return re.fullmatch(r"-\s*([0-9])\1{2,}", s) is not None
-    return False
-
-def clean_values(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Dict[str, int]]]:
-    """
-    - Replace -9999 (numeric and string) -> NaN
-    - Replace negative repeated-digit placeholders like -777777 -> NaN (numeric and string)
-    - Replace any string cell containing whitespace -> 'CUT'
-    Returns (cleaned_df, stats_by_category_by_column)
-    """
-    df = df.copy()
-    stats = {"minus9999": {}, "neg_repeated": {}, "space_strings": {}}
-
-    # Pass 1: -9999 -> NaN (numeric)
-    for col in df.select_dtypes(include=[np.number]).columns:
-        mask = df[col] == -9999
-        cnt = int(mask.sum())
-        if cnt:
-            df.loc[mask, col] = pd.NA
-            stats["minus9999"][col] = stats["minus9999"].get(col, 0) + cnt
-
-    # Pass 1b: -9999 -> NaN (string/object)
-    for col in df.columns:
-        if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
-            s = df[col].astype("string")
-            mask = s.str.fullmatch(r"\s*-9999\s*", na=False)
-            cnt = int(mask.sum())
-            if cnt:
-                s = s.mask(mask, pd.NA)
-                df[col] = s
-                stats["minus9999"][col] = stats["minus9999"].get(col, 0) + cnt
-
-    # Pass 2: negative repeated-digit placeholders -> NaN (string/object)
-    for col in df.columns:
-        if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
-            s = df[col].astype("string")
-            mask = s.str.fullmatch(r"\s*-\s*([0-9])\1{2,}\s*", na=False)
-            cnt = int(mask.sum())
-            if cnt:
-                s = s.mask(mask, pd.NA)
-                df[col] = s
-                stats["neg_repeated"][col] = stats["neg_repeated"].get(col, 0) + cnt
-
-    # Pass 2b: negative repeated-digit placeholders -> NaN (numeric)
-    for col in df.select_dtypes(include=[np.number]).columns:
-        mask = df[col].apply(_is_negative_repeated_int_scalar)
-        cnt = int(mask.sum())
-        if cnt:
-            df.loc[mask, col] = pd.NA
-            stats["neg_repeated"][col] = stats["neg_repeated"].get(col, 0) + cnt
-
-    # Pass 3: strings containing whitespace -> 'CUT' (preserve NaNs)
-    for col in df.columns:
-        if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
-            s = df[col].astype("string")
-            mask = s.str.contains(r"\s", na=False)
-            cnt = int(mask.sum())
-            if cnt:
-                s = s.mask(mask, "CUT")
-                df[col] = s
-                stats["space_strings"][col] = stats["space_strings"].get(col, 0) + cnt
-
-    return df, stats
-
-def print_cleaning_summary(stats: Dict[str, Dict[str, int]], title: str):
-    def _top(d: Dict[str, int], k=10):
-        return sorted(d.items(), key=lambda kv: kv[1], reverse=True)[:k]
-
-    _p(f"[CLEAN-SUMMARY] {title}")
-    for cat in ("minus9999", "neg_repeated", "space_strings"):
-        colmap = stats.get(cat, {})
-        total = sum(colmap.values())
-        _p(f"  - {cat}: total replaced = {total}")
-        if total:
-            for col, cnt in _top(colmap):
-                _p(f"      • {col}: {cnt}")
-
-# ---------- selection helpers ----------
-def _gather_candidates_for_subject(df: pd.DataFrame, subject: str) -> pd.DataFrame:
-    if df.empty or "Med_ID" not in df.columns:
-        return pd.DataFrame()
-    subdf = df[df["Med_ID"] == subject].copy()
-    if subdf.empty:
-        return subdf
-    if "Visit_ID" in subdf.columns:
-        subdf["_Visit_ID_num"] = pd.to_numeric(subdf["Visit_ID"], errors="coerce")
-    else:
-        subdf["_Visit_ID_num"] = pd.NA
-    date_col = None
-    if "Interview_Date" in subdf.columns:
-        date_col = "Interview_Date"
-    else:
-        for c in subdf.columns:
-            if "date" in c.lower():
-                date_col = c; break
-    if date_col:
-        subdf["_date_col"] = date_col
-        subdf["_dt"] = pd.to_datetime(subdf[date_col], errors="coerce")
-    else:
-        subdf["_date_col"] = pd.NA
-        subdf["_dt"] = pd.NaT
-    return subdf
-
-def choose_best_row(
-    subject: str,
-    visit: str,                  # "0" or "2"
-    target_date: pd.Timestamp,   # BL/M24 or Acq_Date fallback
-    allowed: List[Tuple[int, pd.DataFrame]],  # list of (bucket_num, df)
-    expected_visit_id: int       # 1 for y0, 3 for y2
-) -> Tuple[Optional[pd.Series], Optional[int]]:
-    """
-    Only considers the provided allowed buckets.
-    1) Prefer exact Visit_ID==expected_visit_id among allowed; pick min date-distance.
-    2) Else choose min date-distance across all allowed.
-    """
-    candidates: List[Tuple[pd.Series, int, pd.Timedelta]] = []
-
-    for bucket, df in allowed:
-        subdf = _gather_candidates_for_subject(df, subject)
-        if subdf.empty:
-            continue
-        if pd.isna(target_date):
-            subdf["_dist"] = pd.Timedelta.max
-        else:
-            dd = (subdf["_dt"] - target_date).abs()
-            subdf["_dist"] = dd.fillna(pd.Timedelta.max)
-        for _, r in subdf.iterrows():
-            candidates.append((r, bucket, r["_dist"] if "_dist" in r else pd.Timedelta.max))
-
-    if not candidates:
-        return None, None
-
-    exact = [(r, b, d) for (r, b, d) in candidates if not pd.isna(r.get("_Visit_ID_num")) and int(r["_Visit_ID_num"]) == expected_visit_id]
-    if exact:
-        exact.sort(key=lambda t: t[2])  # by distance
-        r, b, _ = exact[0]
-        return r, b
-
-    candidates.sort(key=lambda t: t[2])
-    r, b, _ = candidates[0]
-    return r, b
-
-# ---------- AB-enriched helper ----------
+# ----------------- AB helpers -----------------
 def prepare_ab_lookup(path: Path) -> pd.DataFrame:
-    """
-    Load the AB-enriched CSV and attempt to produce columns: Subject (no leading H) and Year (0 or 2).
-    Returns df with those columns + the requested AB_FIELDS_WANTED (only those present).
-    """
     if not path.exists():
         _p(f"[WARN] AB-enriched file not found: {path}")
         return pd.DataFrame()
-
     try:
         df = read_table(path)
     except Exception as e:
         _p(f"[WARN] Failed to read AB file: {e}")
         return pd.DataFrame()
-
-    # Try to get Subject / Year
     df = df.copy()
     cols = {c.lower(): c for c in df.columns}
-
+    # try med_id
     if "med_id" in cols:
         df["Subject"] = df[cols["med_id"]].astype(str).str.strip()
-    # If runno-like column exists, parse it for Subject + Year
+    # try runno-like
     runno_col = None
     for cand in ("runno", "run_no", "runnos", "id"):
         if cand in cols:
             runno_col = cols[cand]; break
     if runno_col and "Subject" not in df.columns:
-        # try parse runno strings to subject & year
         subj_list = []
         year_list = []
         for val in df[runno_col].astype(str).fillna(""):
             m = RUNNO_PATTERN.match(val)
             if m:
-                subj_list.append(m.group(1)[1:])  # strip leading H
+                subj_list.append(m.group(1)[1:])  # strip H
                 year_list.append(int(m.group(2)))
             else:
                 subj_list.append("")
                 year_list.append(np.nan)
         df["Subject"] = pd.Series(subj_list)
         df["Year"] = pd.Series(year_list)
-
-    # If we have Visit or Visit_ID columns, map them to Year if Year not already present
+    # try visit -> year mapping
     if "Year" not in df.columns:
         if "visit" in cols:
-            # map BL->0, M24->2
             def visit_to_year(v):
                 vstr = str(v).strip().upper()
-                if vstr in ("BL", "BASELINE", "0", "Y0"):
-                    return 0
-                if vstr in ("M24", "24", "2", "Y2"):
-                    return 2
+                if vstr in ("BL", "BASELINE", "0", "Y0"): return 0
+                if vstr in ("M24", "24", "2", "Y2"): return 2
                 try:
                     ni = int(vstr)
-                    # try mapping visit_id 1->0, 3->2
-                    if ni == 1:
-                        return 0
-                    if ni == 3:
-                        return 2
+                    if ni == 1: return 0
+                    if ni == 3: return 2
                 except Exception:
                     pass
                 return np.nan
             df["Year"] = df[cols["visit"]].apply(visit_to_year)
         elif "visit_id" in cols:
             df["Year"] = pd.to_numeric(df[cols["visit_id"]], errors="coerce").map({1:0, 3:2})
-
-    # If we have Med_ID but Year missing, try to infer Year from any 'year'/'visit'/'visit_id' columns
-    if "Subject" not in df.columns and "med_id" in cols:
-        df["Subject"] = df[cols["med_id"]].astype(str).str.strip()
-
-    # Ensure Subject has no leading H
+    # final subject cleaning
     if "Subject" in df.columns:
         df["Subject"] = df["Subject"].astype(str).str.replace(r"^H", "", regex=True).str.strip()
-
-    # Keep only wanted fields that exist
     keep = [c for c in AB_FIELDS_WANTED if c in df.columns]
     if not keep:
-        _p(f"[WARN] None of the requested AB fields found in {path}. Found columns: {list(df.columns)[:20]}")
+        _p(f"[WARN] None of the requested AB fields found in {path}. Found columns: {list(df.columns)[:30]}")
         return pd.DataFrame()
-    # Build small lookup
     out = df.loc[:, ["Subject", "Year"] + keep].copy()
-    # Coerce Year to int where possible
     out["Year"] = pd.to_numeric(out["Year"], errors="coerce").astype("Int64")
-    # Drop rows without Subject
     out = out[out["Subject"].astype(str) != ""].copy()
     _p(f"[OK] AB lookup prepared: rows={len(out)}, fields={keep}")
     return out
 
-# ---------- main ----------
+# ----------------- main -----------------
 def main():
+    ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     try:
-        _p("[START] HABS Maestro metadata build")
-
-        # 1) Runnos
+        _p("[START] HABS Maestro metadata build (v2)")
         runnos = compile_ordered_runnos(dirs_start=[DWI_DIR], dirs_end=[FMRI_DIR])
         if not runnos:
-            _p("[FATAL] No runnos found. Check filename patterns/paths above.")
+            _p("[FATAL] No runnos found.")
             return
 
-        # 2) First CSV
-        df_dual = load_first_csv_table(HABS_DUAL_FILE)
-        subj_to_visit_dates = build_dual_date_map(df_dual)
+        df_dual = read_table(HABS_DUAL_FILE)
+        # normalize minimal columns
+        if "Subject" in df_dual.columns: df_dual["Subject"] = df_dual["Subject"].astype(str).str.strip()
+        df_dual = df_dual.copy()
+        subj_to_visit_dates = {}
+        if not df_dual.empty:
+            for _, r in df_dual.iterrows():
+                s = str(r.get("Subject", "")).strip()
+                v = str(r.get("Visit", "")).strip()
+                acq = r.get("Acq_Date", pd.NaT)
+                if s:
+                    if s not in subj_to_visit_dates:
+                        subj_to_visit_dates[s] = {"BL": pd.NaT, "M24": pd.NaT}
+                    if v in ("BL", "M24"):
+                        subj_to_visit_dates[s][v] = acq
 
-        # 3) Genomics
+        # loads
         df_gen_all = safe_concat_csvs(str(METADATA_DIR / "Genomics*.csv"), "Genomics*.csv")
         if not df_gen_all.empty and "Age" in df_gen_all.columns:
             df_gen_all = df_gen_all.drop(columns=["Age"])
-        df_gen_all = build_lookup_on_med_id(df_gen_all, "Genomics")
+        if "Med_ID" in df_gen_all.columns:
+            df_gen_all["Med_ID"] = df_gen_all["Med_ID"].astype(str).str.strip()
 
-        # 4) Clinical (1/2/3) and Biomarker (1/2/3)
-        df_clin1_all = build_lookup_on_med_id(safe_concat_csvs(str(METADATA_DIR / "Clinical HD 1*.csv"), "Clinical HD 1*.csv"), "Clinical HD 1")
-        df_clin2_all = build_lookup_on_med_id(safe_concat_csvs(str(METADATA_DIR / "Clinical HD 2*.csv"), "Clinical HD 2*.csv"), "Clinical HD 2")
-        df_clin3_all = build_lookup_on_med_id(safe_concat_csvs(str(METADATA_DIR / "Clinical HD 3*.csv"), "Clinical HD 3*.csv"), "Clinical HD 3")
+        df_clin1_all = safe_concat_csvs(str(METADATA_DIR / "Clinical HD 1*.csv"), "Clinical HD 1*.csv")
+        df_clin2_all = safe_concat_csvs(str(METADATA_DIR / "Clinical HD 2*.csv"), "Clinical HD 2*.csv")
+        df_clin3_all = safe_concat_csvs(str(METADATA_DIR / "Clinical HD 3*.csv"), "Clinical HD 3*.csv")
+        for d in (df_clin1_all, df_clin2_all, df_clin3_all):
+            if "Med_ID" in d.columns: d["Med_ID"] = d["Med_ID"].astype(str).str.strip()
 
-        df_bio1_all = build_lookup_on_med_id(safe_concat_csvs(str(METADATA_DIR / "Biomarker HD 1*.csv"), "Biomarker HD 1*.csv"), "Biomarker HD 1")
-        df_bio2_all = build_lookup_on_med_id(safe_concat_csvs(str(METADATA_DIR / "Biomarker HD 2*.csv"), "Biomarker HD 2*.csv"), "Clinical HD 2")  # label reuse OK
-        df_bio3_all = build_lookup_on_med_id(safe_concat_csvs(str(METADATA_DIR / "Biomarker HD 3*.csv"), "Biomarker HD 3*.csv"), "Clinical HD 3")
+        df_bio1_all = safe_concat_csvs(str(METADATA_DIR / "Biomarker HD 1*.csv"), "Biomarker HD 1*.csv")
+        df_bio2_all = safe_concat_csvs(str(METADATA_DIR / "Biomarker HD 2*.csv"), "Biomarker HD 2*.csv")
+        df_bio3_all = safe_concat_csvs(str(METADATA_DIR / "Biomarker HD 3*.csv"), "Biomarker HD 3*.csv")
+        for d in (df_bio1_all, df_bio2_all, df_bio3_all):
+            if "Med_ID" in d.columns: d["Med_ID"] = d["Med_ID"].astype(str).str.strip()
 
-        # Prepare AB lookup
         df_ab_lookup = prepare_ab_lookup(HABS_AB_FILE)
 
-        # Precompute present runnos in DWI/FMRI directories for fast membership test
+        # presence lists
         dwi_present = set(list_runnos_from_dir_start(DWI_DIR)) | set(list_runnos_from_dir_end(DWI_DIR))
         fmri_present = set(list_runnos_from_dir_start(FMRI_DIR)) | set(list_runnos_from_dir_end(FMRI_DIR))
-        _p(f"[INFO] DWI runnos found: {len(dwi_present)}; fMRI runnos found: {len(fmri_present)}")
+        _p(f"[INFO] DWI runnos: {len(dwi_present)}; fMRI runnos: {len(fmri_present)}")
 
-        # 5) Build rows + track missing
-        _p("[STEP] Building merged rows…")
-        miss_genomics: Set[str] = set()
-        miss_clinical: Set[str] = set()
-        miss_biomarker: Set[str] = set()
+        # iterate runnos -> rows
         rows = []
-
+        miss_genomics, miss_clinical, miss_biomarker = set(), set(), set()
         for i, runno in enumerate(runnos, 1):
             if i % 50 == 1 or i == len(runnos):
                 _p(f"  • Processing {i}/{len(runnos)}: {runno}")
-
             try:
                 runno_str, subject, visit = subject_visit_from_runno(runno)
                 visit_code = map_visit_code(visit)
                 expected_visit_id = 1 if visit == "0" else 3
-
-                # First CSV lookup (Sex, Acq_Date)
                 sel = df_dual[(df_dual.get("Subject") == subject) & (df_dual.get("Visit") == visit_code)]
                 if sel.empty:
-                    sex = pd.NA
-                    acq_date = pd.NaT
+                    sex = pd.NA; acq_date = pd.NaT
                 else:
                     sex = sel.iloc[0].get("Sex", pd.NA)
                     acq_date = sel.iloc[0].get("Acq_Date", pd.NaT)
-
-                # Target date for inference: prefer BL/M24 map; fallback to Acq_Date
-                target_date = subj_to_visit_dates.get(subject, {}).get(visit_code, pd.NaT)
+                target_date = subj_to_visit_dates.get(subject, {}).get(visit_code, pd.NaT) if subj_to_visit_dates else acq_date
                 if pd.isna(target_date):
                     target_date = acq_date
-
-                # Base row (Year immediately after Subject)
                 row = {"runno": runno_str, "Subject": subject, "Year": int(visit), "Sex": sex, "Acq_Date": acq_date}
-
-                # Add DWI / fMRI presence columns (populate with runno string if present)
                 row["DWI"] = runno_str if runno_str in dwi_present else pd.NA
                 row["fMRI"] = runno_str if runno_str in fmri_present else pd.NA
 
-                # ----- Genomics
+                # genomics
                 if not df_gen_all.empty and "Med_ID" in df_gen_all.columns:
-                    gen_row = df_gen_all[df_gen_all["Med_ID"] == subject]
-                    if gen_row.empty:
+                    g = df_gen_all[df_gen_all["Med_ID"] == subject]
+                    if g.empty:
                         miss_genomics.add(runno_str)
                     else:
-                        for k, v in gen_row.iloc[0].to_dict().items():
-                            if k not in row:
-                                row[k] = v
+                        for k, v in g.iloc[0].to_dict().items():
+                            if k not in row: row[k] = v
                 else:
                     miss_genomics.add(runno_str)
 
-                # ----- Clinical (allowed buckets per visit)
+                # clinical
                 if visit == "0":
-                    clin_allowed = [(1, df_clin1_all)]  # ONLY HD1
+                    clin_allowed = [(1, df_clin1_all)]
                 else:
-                    clin_allowed = [(2, df_clin2_all), (3, df_clin3_all)]  # ONLY HD2/HD3
+                    clin_allowed = [(2, df_clin2_all), (3, df_clin3_all)]
+                # choose_best_row simplified: pick first row with minimal date distance or Visit_ID match
+                def pick_best(subj, allowed, exp_vid):
+                    cand = None
+                    best_dist = pd.Timedelta.max
+                    for bucket, dfc in allowed:
+                        if dfc.empty or "Med_ID" not in dfc.columns: continue
+                        sub = dfc[dfc["Med_ID"] == subj].copy()
+                        if sub.empty: continue
+                        # try visit id match
+                        if "Visit_ID" in sub.columns:
+                            exact = sub[sub["Visit_ID"].astype(str).str.strip() == str(exp_vid)]
+                            if not exact.empty:
+                                return exact.iloc[0], bucket
+                        # else choose first (this is conservative)
+                        return sub.iloc[0], bucket
+                    return None, None
 
-                clin_sel, clin_bucket = choose_best_row(
-                    subject=subject,
-                    visit=visit,
-                    target_date=target_date,
-                    allowed=clin_allowed,
-                    expected_visit_id=expected_visit_id
-                )
+                clin_sel, clin_bucket = pick_best(subject, clin_allowed, expected_visit_id)
                 if clin_sel is None:
                     miss_clinical.add(runno_str)
                 else:
                     row["Clinical_HD_Source"] = clin_bucket
                     for k, v in clin_sel.to_dict().items():
-                        if k not in row:
-                            row[k] = v
+                        if k not in row: row[k] = v
 
-                # ----- Biomarker (allowed buckets per visit; same rules)
+                # biomarker
                 if visit == "0":
                     bio_allowed = [(1, df_bio1_all)]
                 else:
                     bio_allowed = [(2, df_bio2_all), (3, df_bio3_all)]
-
-                bio_sel, bio_bucket = choose_best_row(
-                    subject=subject,
-                    visit=visit,
-                    target_date=target_date,
-                    allowed=bio_allowed,
-                    expected_visit_id=expected_visit_id
-                )
+                bio_sel, bio_bucket = pick_best(subject, bio_allowed, expected_visit_id)
                 if bio_sel is None:
                     miss_biomarker.add(runno_str)
                 else:
                     row["Biomarker_HD_Source"] = bio_bucket
                     for k, v in bio_sel.to_dict().items():
-                        if k not in row:
-                            row[k] = v
+                        if k not in row: row[k] = v
 
                 rows.append(pd.Series(row))
-
             except Exception as e:
                 _p(f"[ERROR] runno={runno}: {e}")
                 traceback.print_exc()
@@ -609,83 +437,150 @@ def main():
 
         df_out = pd.DataFrame(rows)
 
-        # 5.5) Clean values BEFORE de-dup/constant-drop (and show summary)
-        _p("[STEP] Cleaning values: whitespace strings → 'CUT'; -9999 & negative repeated digits → empty")
+        # initial cleaning
+        _p("[STEP] Cleaning values")
         df_out, clean_stats = clean_values(df_out)
         print_cleaning_summary(clean_stats, "Per-column replacements")
 
-        # Merge AB-enriched fields (match on Subject + Year) if available
+        # Initial AB merge (left). This may add columns with exact canonical names or suffixed copies.
         if not df_ab_lookup.empty:
-            # Ensure df_out Year is Int64 for merge if possible
+            # normalize keys
+            df_out["Subject"] = df_out["Subject"].astype(str).str.strip()
             df_out["Year"] = pd.to_numeric(df_out["Year"], errors="coerce").astype("Int64")
+            df_ab_lookup["Subject"] = df_ab_lookup["Subject"].astype(str).str.strip()
+            df_ab_lookup["Year"] = pd.to_numeric(df_ab_lookup["Year"], errors="coerce").astype("Int64")
             before_cols = set(df_out.columns)
             try:
                 df_out = df_out.merge(df_ab_lookup, on=["Subject", "Year"], how="left", suffixes=("", "_absrc"))
                 added = [c for c in df_out.columns if c not in before_cols]
-                _p(f"[OK] Merged AB fields: added columns = {added}")
+                _p(f"[OK] Merged AB fields (raw added cols) = {added}")
             except Exception as e:
                 _p(f"[WARN] AB merge failed: {e}")
+            # diagnostics: pre-merge debug slice
+            try:
+                dbg_pre = Path(str(PRIMARY_OUT_PATH).replace(".csv", ""))  # base for debug files
+                pre_dbg_path = dbg_pre.with_name(dbg_pre.stem + ".AB_debug_premerge.csv")
+                dbg_cols = ["Subject", "Year"] + [c for c in AB_FIELDS_WANTED if c in df_out.columns or f"{c}_absrc" in df_out.columns]
+                if dbg_cols:
+                    df_out.loc[:, dbg_cols].to_csv(pre_dbg_path, index=False)
+                    _p(f"[DEBUG] Wrote AB pre-merge debug -> {pre_dbg_path}")
+            except Exception as e:
+                _p(f"[WARN] Could not write AB premerge debug: {e}")
+        else:
+            _p("[WARN] AB lookup empty — skipping initial AB merge")
 
-        # 6) Reorder base fields first (Year immediately after Subject)
+        # reorder base fields for readability
         base_order = ["runno", "Subject", "Year", "Sex", "Acq_Date", "DWI", "fMRI", "Clinical_HD_Source", "Biomarker_HD_Source"]
         remaining = [c for c in df_out.columns if c not in base_order]
         df_out = df_out[[c for c in base_order if c in df_out.columns] + remaining]
         _p(f"[OK] Raw merged shape (post-clean+AB merge): {df_out.shape}")
 
-        # 7) Deduplicate identical columns
+        # dedupe identical columns
         before = df_out.shape[1]
         df_out = remove_duplicate_identical_columns(df_out)
         after_dup = df_out.shape[1]
         _p(f"[CLEAN] Dropped {before - after_dup} duplicate-identical columns")
 
-        # 8) Drop constant columns
+        # drop constant columns
         before2 = df_out.shape[1]
         df_out = remove_constant_columns(df_out)
         after_const = df_out.shape[1]
         _p(f"[CLEAN] Dropped {before2 - after_const} constant columns")
         _p(f"[OK] Shape after dedup/const-drop: {df_out.shape}")
 
-        # 8.5) Drop low-population columns (<10% non-empty). Protect base_order.
+        # low-pop drop (<10%) but protect AB fields and core identifiers
         nrows = len(df_out)
-        protect = {c for c in ["runno", "Subject", "Year", "Sex", "Acq_Date"]}
+        protect = {c for c in ["runno", "Subject", "Year", "Sex", "Acq_Date"]} | set(AB_FIELDS_WANTED)
         cols_to_check = [c for c in df_out.columns if c not in protect]
         dropped_low = []
         for c in cols_to_check:
-            # define "populated" as notna
             non_empty = int(df_out[c].notna().sum())
             prop = non_empty / nrows if nrows else 0.0
             if prop < 0.10:
                 df_out = df_out.drop(columns=[c])
                 dropped_low.append((c, non_empty, prop))
                 _p(f"[DROP_LOW_POP] Dropped column '{c}' — non-empty rows: {non_empty}/{nrows} ({prop:.1%})")
-        if not dropped_low:
-            _p("[INFO] No low-population columns found (<10%)")
+        _p(f"[INFO] Total low-pop columns dropped: {len(dropped_low)}")
+        _p(f"[OK] Shape after low-pop drops: {df_out.shape}")
+
+        # ---------------------------
+        # FINAL AB RECONCILIATION (after all drops, BEFORE writing csv)
+        # ---------------------------
+        _p("[STEP] Final AB reconciliation (post-drops)")
+
+        df_out["Subject"] = df_out["Subject"].astype(str).str.strip()
+        df_out["Year"] = pd.to_numeric(df_out["Year"], errors="coerce").astype("Int64")
+        if not df_ab_lookup.empty:
+            df_ab_lookup["Subject"] = df_ab_lookup["Subject"].astype(str).str.strip()
+            df_ab_lookup["Year"] = pd.to_numeric(df_ab_lookup["Year"], errors="coerce").astype("Int64")
+
+        if not df_ab_lookup.empty:
+            # rename suffixed -> canonical if present
+            for fld in AB_FIELDS_WANTED:
+                suff = f"{fld}_absrc"
+                if suff in df_out.columns and fld not in df_out.columns:
+                    df_out.rename(columns={suff: fld}, inplace=True)
+                    _p(f"[AB-FINAL] Renamed '{suff}' -> '{fld}'")
+            # fill / add from AB lookup by mapping (Subject, Year)
+            try:
+                ab_indexed = df_ab_lookup.set_index(["Subject", "Year"])
+                for fld in AB_FIELDS_WANTED:
+                    if fld in ab_indexed.columns:
+                        map_ser = ab_indexed[fld]
+                        keys = list(zip(df_out["Subject"].astype(str), df_out["Year"].astype("Int64").tolist()))
+                        mapped = pd.Series([map_ser.get(k, pd.NA) for k in keys], index=df_out.index)
+                        if fld in df_out.columns:
+                            before_nonnull = int(df_out[fld].notna().sum())
+                            df_out[fld] = df_out[fld].where(df_out[fld].notna(), mapped)
+                            after_nonnull = int(df_out[fld].notna().sum())
+                            _p(f"[AB-FINAL-FILL] {fld}: filled {after_nonnull - before_nonnull} values from AB-lookup (now {after_nonnull}/{len(df_out)})")
+                        else:
+                            df_out[fld] = mapped
+                            _p(f"[AB-FINAL-ADD] {fld}: added from AB-lookup (non-empty={int(df_out[fld].notna().sum())}/{len(df_out)})")
+                    else:
+                        if fld not in df_out.columns:
+                            df_out[fld] = pd.NA
+                            _p(f"[AB-FINAL-ENSURE] {fld} not in AB lookup; created empty canonical column")
+            except Exception as e:
+                _p(f"[WARN] Final AB reconciliation failed: {e}")
         else:
-            _p(f"[INFO] Total low-pop columns dropped: {len(dropped_low)}")
+            for fld in AB_FIELDS_WANTED:
+                if fld not in df_out.columns:
+                    df_out[fld] = pd.NA
+                    _p(f"[AB-FINAL-ENSURE] No AB lookup file; created empty column '{fld}'")
 
-        _p(f"[OK] Final shape: {df_out.shape}")
+        # final diagnostics + debug CSV
+        for fld in AB_FIELDS_WANTED:
+            non_empty = int(df_out[fld].notna().sum())
+            _p(f"[AB-FINAL-COUNT] {fld}: non-empty={non_empty}/{len(df_out)} ({(non_empty/len(df_out) if len(df_out) else 0):.1%})")
 
-        # 9) Write CSV
+        try:
+            dbg_path = PRIMARY_OUT_PATH.with_name(PRIMARY_OUT_PATH.stem + f".AB_final_debug.{ts}.csv")
+            dbg_cols = ["Subject", "Year"] + AB_FIELDS_WANTED
+            df_out.loc[:, dbg_cols].to_csv(dbg_path, index=False)
+            _p(f"[DEBUG] Wrote AB final debug file -> {dbg_path} (rows={len(df_out)})")
+            _p(f"[DEBUG] Sample:")
+            _p(str(df_out.loc[:, dbg_cols].head(6)))
+        except Exception as e:
+            _p(f"[WARN] Could not write AB final debug CSV: {e}")
+
+        # ---------------------------
+        # final write + timestamped backup
+        # ---------------------------
         out_path = PRIMARY_OUT_PATH
         out_dir = out_path.parent
-        try:
-            out_dir.mkdir(parents=True, exist_ok=True)
-            df_out.to_csv(out_path, index=False)
-            _p(f"[DONE] Wrote CSV: {out_path}  (rows={df_out.shape[0]}, cols={df_out.shape[1]})")
-        except Exception as e:
-            _p(f"[WARN] Primary write failed: {e}")
-            if FALLBACK_OUT_PATH is None:
-                _p("[FATAL] No $WORK fallback available. Aborting.")
-                return
-            out_path = FALLBACK_OUT_PATH
-            out_dir = out_path.parent
-            out_dir.mkdir(parents=True, exist_ok=True)
-            df_out.to_csv(out_path, index=False)
-            _p(f"[DONE] Wrote CSV (fallback): {out_path}  (rows={df_out.shape[0]}, cols={df_out.shape[1]})")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        # write main CSV
+        df_out.to_csv(out_path, index=False)
+        _p(f"[DONE] Wrote CSV: {out_path}  (rows={df_out.shape[0]}, cols={df_out.shape[1]})")
+        # write timestamped backup for git diffs
+        bak_path = out_path.with_name(out_path.stem + f".{ts}.bak.csv")
+        df_out.to_csv(bak_path, index=False)
+        _p(f"[DONE] Wrote timestamped backup CSV: {bak_path}")
 
-        # 10) Missing metadata log (genomics + clinical + biomarker)
+        # missing metadata log
         if miss_genomics or miss_clinical or miss_biomarker:
-            miss_path = out_path.with_suffix(".genomics_missing.txt")  # keep same filename per prior convention
+            miss_path = out_path.with_suffix(".genomics_missing.txt")
             _p(f"[INFO] Writing missing metadata log → {miss_path}")
             all_runnos = sorted(miss_genomics | miss_clinical | miss_biomarker)
             with open(miss_path, "w") as fh:
@@ -702,6 +597,6 @@ def main():
         sys.exit(1)
 
 if __name__ == "__main__":
-    pd.set_option("display.width", 200)
-    pd.set_option("display.max_columns", 200)
+    pd.set_option("display.width", 240)
+    pd.set_option("display.max_columns", 240)
     main()
